@@ -35,7 +35,8 @@
 #include<cctype>
 #include<time.h>
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
 	MMSP::Init(argc, argv);
 
 	// check argument list
@@ -267,7 +268,6 @@ int main(int argc, char* argv[]) {
 			length += slength.str().length();
 		}
 
-
 		if (dim == 1) {
 			// construct grid object
 			GRID1D grid(argv[1]);
@@ -390,7 +390,6 @@ int main(int argc, char* argv[]) {
 			}
 		}
 	}
-
 	MMSP::Finalize();
 }
 

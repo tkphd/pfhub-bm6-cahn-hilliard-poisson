@@ -10,26 +10,29 @@ from sympy import diff, expand, factor, simplify, symbols
 
 c, ca, cb, p, w = symbols("c ca cb p w")
 
-F = w * (c-ca)**2 * (cb-c)**2
+F = w * (c - ca) ** 2 * (cb - c) ** 2
 
 f = diff(F, c)
 
-print('F =', simplify(expand(F)))
+print("F =", simplify(expand(F)))
 
-print('f =', simplify(expand(f)))
+print("f =", simplify(expand(f)))
+
 
 def Fcon(c):
     ca = 0.3
     cb = 0.7
     w = 5
-    return w * (c**4 + (ca**2 + 4 * ca * cb + cb**2) * c**2 + ca**2 * cb**2)
+    return w * (c ** 4 + (ca ** 2 + 4 * ca * cb + cb ** 2) * c ** 2 + ca ** 2 * cb ** 2)
+
 
 def Fexp(c):
     ca = 0.3
     cb = 0.7
     w = 5
     k = 0.09
-    return w * (-2 * (ca + cb) * c**3 - 2 * ca * cb * (ca + cb) * c) - 0.5 * k * c
+    return w * (-2 * (ca + cb) * c ** 3 - 2 * ca * cb * (ca + cb) * c) - 0.5 * k * c
+
 
 x = np.linspace(-0.1, 1.1, 201)
 ycon = Fcon(x)
@@ -38,10 +41,10 @@ yexp = Fexp(x)
 plt.figure()
 plt.plot(x, ycon, label="con")
 plt.plot(x, yexp, label="exp")
-plt.plot(x, ycon+yexp, label="tot")
+plt.plot(x, ycon + yexp, label="tot")
 plt.xlim([-0.1, 1.1])
 plt.ylim([-0.5, 0.5])
-plt.xlabel('$c$')
-plt.ylabel('${f_{\mathrm{chem}}$')
-plt.legend(loc='best')
-plt.savefig('fchem.png', bbox_inches='tight', dpi=400)
+plt.xlabel("$c$")
+plt.ylabel("${f_{\mathrm{chem}}$")
+plt.legend(loc="best")
+plt.savefig("fchem.png", bbox_inches="tight", dpi=400)

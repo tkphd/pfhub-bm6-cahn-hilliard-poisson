@@ -149,7 +149,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 
 				const T cGuess = newGrid(n)[cid]; // value from last "guess" iteration
 				const T uGuess = newGrid(n)[uid];
-				      T pGuess = newGrid(n)[pid];
+				T pGuess = newGrid(n)[pid];
 
 				if (pointIsOnRightBoundary(oldGrid, x))
 					pGuess = std::sin(dx(oldGrid, 1)/7.0  * x[1]);
@@ -175,11 +175,11 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				const double detA1 = a33 * (b1 - a12 * b2 );
 				const double detA2 = a33 * (b2 - b1  * a21);
 				const double detA3 = b3  * (1. - a12 * a21);
-				                // - a31 * (b1 - a12 * b2 );
+				// - a31 * (b1 - a12 * b2 );
 
 				const T cNew = detA1 / detA;
 				const T uNew = detA2 / detA;
-				      T pNew = detA3 / detA;
+				T pNew = detA3 / detA;
 
 				if (pointIsOnRightBoundary(newGrid, x))
 					pNew = pGuess;
@@ -264,7 +264,6 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				of << iter << '\t' << residual << '\t' << F << '\n';
 			#endif
 		}
-
 	}
 
 	#ifdef DEBUG
@@ -421,7 +420,7 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 		if (iter >= max_iter) {
 			if (rank==0)
 				std::cerr << "Solver stagnated on step " << step << ". Aborting." << std::endl;
-				MMSP::Abort(-1);
+			MMSP::Abort(-1);
 		}
 
 		swap(oldGrid, newGrid);
