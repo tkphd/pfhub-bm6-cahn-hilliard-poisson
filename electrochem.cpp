@@ -119,13 +119,12 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 	while (iter < max_iter && residual > tolerance) {
 		/*  ==== RED-BLACK GAUSS SEIDEL ====
 		    Iterate over a checkerboard, updating first red then black tiles.
-		    This method eliminates the third "guess" grid, and should converge faster.
-		    In 2-D and 3-D, if the sum of indices is even, then the tile is Red; else, Black.
+		    If the sum of indices is even, then the tile is Red; else, Black.
 
 			This method solves the linear system of equations,
-		    /  1  a12  0  \ / x1 \   / b1 \
-		    | a21  1   0  | | x2 | = | b2 |
-			\ a31  0  a33 / \ x3 /   \ b3 /
+		    [  1  a12  0  ][ x1 ]   [ b1 ]
+		    [ a21  1   0  ][ x2 ] = [ b2 ]
+			[ a31  0  a33 ][ x3 ]   [ b3 ]
 		*/
 
 		for (int color=1; color>-1; color--) {
@@ -156,12 +155,14 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				else if (pointIsOnLeftBoundary(oldGrid, x))
 					pGuess = 0.0;
 
-				// A is defined by the last guess, stored in newGrid(n). It is a 3x3 matrix.
+				// A is defined by the last guess, stored in newGrid(n).
+				// It is a 3x3 matrix.
 				const double a12 = lapWeight * dt * M;
 				const double a21 = -kappa * lapWeight - dfcontractivedc(cGuess, 1.0);
 				const double a33 = -lapWeight;
 
-				// B is defined by the last value, stored in oldGrid(n), and the last guess, stored in newGrid(n). It is a 3x1 column.
+				// B is defined by the last value, stored in oldGrid(n), and the
+				// last guess, stored in newGrid(n). It is a 3x1 column.
 				const double flapC = fringe_laplacian(newGrid, x, cid);
 				const double flapU = fringe_laplacian(newGrid, x, uid);
 				const double flapP = fringe_laplacian(newGrid, x, pid);
@@ -232,7 +233,8 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				// Compute the Error from parts of the solution
 				const double r1 = b1 - Ax1;
 				const double r2 = b2 - Ax2;
-				const double r3 = (pointIsOnLeftBoundary(newGrid, x) || pointIsOnRightBoundary(newGrid, x)) ? 0.0 : b3 - Ax3;
+				const double r3 = (pointIsOnLeftBoundary(newGrid, x)
+								|| pointIsOnRightBoundary(newGrid, x)) ? 0.0 : b3 - Ax3;
 
 				const double error  = r1*r1 + r2*r2 + r3*r3;
 				const double source = b1*b1 + b2*b2 + b3*b3;
@@ -306,7 +308,9 @@ void generate(int dim, const char* filename)
 		}
 
 		if (rank == 0)
-			std::cout << "Timestep is " << dt << ". CFL is " << CFL << ". Run " << 1.0 / dt << " per unit time." << std::endl;
+			std::cout << "Timestep is " << dt << ". CFL is " << CFL
+					  << ". Run " << 1.0 / dt << " per unit time."
+					  << std::endl;
 
 		#ifdef _OPENMP
 		#pragma omp parallel for
