@@ -122,18 +122,19 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 		    If the sum of indices is even, then the tile is Red; else, Black.
 
 			This method solves the linear system of equations,
-		    [  1  a12  0  ][ x1 ]   [ b1 ]
+		    [ a11  a12 0  ][ x1 ]   [ b1 ]
 		    [ a21  1   0  ][ x2 ] = [ b2 ]
 			[ a31  0  a33 ][ x3 ]   [ b3 ]
 		*/
 
-		for (int color=1; color>-1; color--) {
+		for (int color = 1; color > -1; color--) {
 			// If color==1, skip BLACK tiles, which have Σx[d] odd
 			// If color==0, skip RED tiles, which have Σx[d] even
 			#ifdef _OPENMP
 			#pragma omp parallel for
 			#endif
 			for (int n=0; n<nodes(oldGrid); n++) {
+				// Within these iterations, "x_n" --> "xOld" and "x_{n+1}" --> "xGuess".
 				vector<int> x = position(oldGrid,n);
 
 				// Determine tile color
@@ -149,16 +150,21 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				const T cGuess = newGrid(n)[cid]; // value from last "guess" iteration
 				const T uGuess = newGrid(n)[uid];
 				T pGuess = newGrid(n)[pid];
-
 				if (pointIsOnRightBoundary(oldGrid, x))
 					pGuess = std::sin(dx(oldGrid, 1)/7.0  * x[1]);
 				else if (pointIsOnLeftBoundary(oldGrid, x))
 					pGuess = 0.0;
 
+				const vector<T> gradC = gradient(oldGrid, x, cid);
+				const vector<T> gradU = gradient(oldGrid, x, uid);
+				const double dotgradCU = gradC * gradU;
+
 				// A is defined by the last guess, stored in newGrid(n).
 				// It is a 3x3 matrix.
-				const double a12 = lapWeight * dt * M;
-				const double a21 = -kappa * lapWeight - dfcontractivedc(cGuess, 1.0);
+				const double a11 = 1. + (2. * dotgradCU * M0 * dt) / std::pow(1. + cOld*cOld, 2.);
+				const double a12 = lapWeight * dt * M0 / (1.0 + cOld * cOld);
+				const double a21 = -kappa * lapWeight - dfcontractivedc(cOld, 1.0);
+				const double a31 = k / epsilon;
 				const double a33 = -lapWeight;
 
 				// B is defined by the last value, stored in oldGrid(n), and the
@@ -167,16 +173,15 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				const double flapU = fringe_laplacian(newGrid, x, uid);
 				const double flapP = fringe_laplacian(newGrid, x, pid);
 
-				const double b1 = cOld + dt * M * flapU;
-				const double b2 = dfexpansivedc(cOld, pOld) - kappa * flapC;
-				const double b3 = -k * cOld / epsilon - flapP;
+				const double b1 = cOld + dt * flapU;
+				const double b2 = dfexpansivedc(cOld, pOld) + k * pOld;
+				const double b3 = k * cOld / epsilon - flapP;
 
 				// Solve the iteration system AX=B using Cramer's rule
-				const double detA  = a33 * (1. - a12 * a21);
+				const double detA  = a33 * (a11 - a12 * a21);
 				const double detA1 = a33 * (b1 - a12 * b2 );
 				const double detA2 = a33 * (b2 - b1  * a21);
-				const double detA3 = b3  * (1. - a12 * a21);
-				// - a31 * (b1 - a12 * b2 );
+				const double detA3 = a22  * (a11 - b1 * a31) + a12 * (b2 * a31 - a21 * b3);
 
 				const T cNew = detA1 / detA;
 				const T uNew = detA2 / detA;
