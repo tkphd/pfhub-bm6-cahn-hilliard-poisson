@@ -12,7 +12,7 @@ links = -lz -fopenmp
 pcompiler = mpicxx
 pflags = $(flags) -include mpi.h
 
-profile: flags += -O0 -pg
+profile: flags += -O0 -g
 profile: electrochem
 
 # the program

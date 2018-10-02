@@ -75,18 +75,6 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 }
 
 template<int dim,typename T>
-bool pointIsOnRightBoundary(const MMSP::grid<dim,T> GRID, const MMSP::vector<int>& x)
-{
-	return (x[0] == g1(GRID, 0) - 1);
-}
-
-template<int dim,typename T>
-bool pointIsOnLeftBoundary(const MMSP::grid<dim,T>& GRID, const MMSP::vector<int>& x)
-{
-	return (x[0] == g0(GRID, 0));
-}
-
-template<int dim,typename T>
 unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,vector<T> >& newGrid)
 {
 	#ifdef DEBUG
@@ -150,10 +138,6 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				const T cGuess = newGrid(n)[cid]; // value from last "guess" iteration
 				const T uGuess = newGrid(n)[uid];
 				T pGuess = newGrid(n)[pid];
-				if (pointIsOnRightBoundary(oldGrid, x))
-					pGuess = std::sin(dx(oldGrid, 1)/7.0  * x[1]);
-				else if (pointIsOnLeftBoundary(oldGrid, x))
-					pGuess = 0.0;
 
 				const vector<T> gradC = gradient(oldGrid, x, cid);
 				const vector<T> gradU = gradient(oldGrid, x, uid);
@@ -185,11 +169,6 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				const T cNew = detA1 / detA;
 				const T uNew = detA2 / detA;
 				T pNew = detA3 / detA;
-
-				if (pointIsOnRightBoundary(newGrid, x))
-					pNew = pGuess;
-				else if (pointIsOnLeftBoundary(newGrid, x))
-					pNew = 0.0;
 
 				// (Don't) Apply relaxation
 				newGrid(n)[cid] = omega * cNew + (1.0 - omega) * cGuess;
@@ -244,8 +223,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				// Compute the Error from parts of the solution
 				const double r1 = b1 - Ax1;
 				const double r2 = b2 - Ax2;
-				const double r3 = (pointIsOnLeftBoundary(newGrid, x)
-								|| pointIsOnRightBoundary(newGrid, x)) ? 0.0 : b3 - Ax3;
+				const double r3 = b3 - Ax3;
 
 				const double error  = r1*r1 + r2*r2 + r3*r3;
 				const double source = b1*b1 + b2*b2 + b3*b3;
@@ -330,48 +308,26 @@ void generate(int dim, const char* filename)
 			vector<int> x = position(initGrid, n);
 			// composition field
 			initGrid(n)[cid] = cheminit(dx(initGrid,0) * x[0], dx(initGrid,1) * x[1]);
-
-			// charge field
-			if (pointIsOnRightBoundary(initGrid, x))
-				initGrid(n)[pid] = std::sin(dx(initGrid, 1)/7.0  * x[1]);
-			else
-				initGrid(n)[pid] = 0.0;
 		}
 
 		ghostswap(initGrid);
+
+		double c0 = 0.0;
+		for (int n=0; n<nodes(initGrid); n++)
+			c0 += deltaX * deltaX * initGrid(n)[cid];
 
 		#ifdef _OPENMP
 		#pragma omp parallel for
 		#endif
 		for (int n=0; n<nodes(initGrid); n++) {
-			// chemical potential field
 			vector<int> x = position(initGrid, n);
-			const double& c = initGrid(n)[cid];
-			const double& p = initGrid(n)[pid];
+			const double c = initGrid(n)[cid];
 			const double lapC = laplacian(initGrid, x, cid);
-			initGrid(n)[uid] = dfcontractivedc(c, c) + dfexpansivedc(c, p) - kappa * lapC;
+			initGrid(n)[pid] = -k * (initGrid(n)[cid] - c0) / epsilon;
+			initGrid(n)[uid] = 2. * w * (c-Ca) * (Cb-c) * (Ca+Cb-2.*c) - kappa*lapC + k*(initGrid(n)[pid] + pExt(initGrid, x));
 		}
 
 		output(initGrid,filename);
-
-		double F = Helmholtz(initGrid);
-		std::ofstream of;
-
-		#ifdef DEBUG
-		if (rank == 0) {
-			of.open("iter.log");
-			of << "iter\tres\tF\n";
-			of << 0 << '\t' << 0 << '\t' << F << '\n';
-			of.close();
-		}
-		#else
-		if (rank == 0) {
-			of.open("energy_dx02.tsv");
-			of << "t\tF\n";
-			of << 0 << '\t' << F << '\n';
-			of.close();
-		}
-		#endif
 	}
 }
 
