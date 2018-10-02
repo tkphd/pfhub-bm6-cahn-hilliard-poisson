@@ -58,6 +58,19 @@ double elecenergy(const T& C, const T& P)
 	return 0.5 * rhoTot * P;
 }
 
+template <int dim, typename T>
+double pExt(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP::vector<int>& x)
+{
+	const double A = 0.0002;
+	const double B =-0.0100;
+	const double C = 0.0200;
+	const double hx = MMSP::dx(GRID);
+	const double hy = MMSP::dy(GRID);
+
+	return A * hx * x[0] * hy * x[1]
+		 + B * hx * x[0]
+	 	 + C * hy * x[1];
+}
 
 // Energy derivatives
 template<typename T>

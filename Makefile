@@ -12,6 +12,9 @@ links = -lz -fopenmp
 pcompiler = mpicxx
 pflags = $(flags) -include mpi.h
 
+profile: flags += -O0 -pg
+profile: electrochem
+
 # the program
 electrochem: electrochem.cpp electrochem.hpp energy.hpp
 	$(compiler) $(flags) $< -o $@ $(links)

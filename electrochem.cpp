@@ -20,7 +20,7 @@ namespace MMSP {
 // Numerical parameters
 const double deltaX = 0.2;
 const double dt = 0.05;
-const double CFL = (24.0 * M * kappa) / std::pow(deltaX, 4);
+const double CFL = (24.0 * M0 * kappa) / (2.0 * std::pow(deltaX, 4));
 
 template <int dim,typename T>
 double Helmholtz(const grid<dim,vector<T> >& GRID)
@@ -169,19 +169,18 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 
 				// B is defined by the last value, stored in oldGrid(n), and the
 				// last guess, stored in newGrid(n). It is a 3x1 column.
-				const double flapC = fringe_laplacian(newGrid, x, cid);
 				const double flapU = fringe_laplacian(newGrid, x, uid);
 				const double flapP = fringe_laplacian(newGrid, x, pid);
 
 				const double b1 = cOld + dt * flapU;
-				const double b2 = dfexpansivedc(cOld, pOld) + k * pOld;
+				const double b2 = dfexpansivedc(cOld, pOld) + k * pOld + k * pExt(oldGrid, x);
 				const double b3 = k * cOld / epsilon - flapP;
 
 				// Solve the iteration system AX=B using Cramer's rule
 				const double detA  = a33 * (a11 - a12 * a21);
 				const double detA1 = a33 * (b1 - a12 * b2 );
 				const double detA2 = a33 * (b2 - b1  * a21);
-				const double detA3 = a22  * (a11 - b1 * a31) + a12 * (b2 * a31 - a21 * b3);
+				const double detA3 = 1.0 * (a11 - b1 * a31) + a12 * (b2 * a31 - a21 * b3);
 
 				const T cNew = detA1 / detA;
 				const T uNew = detA2 / detA;
@@ -226,14 +225,21 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				const T cNew = newGrid(n)[cid];
 				const T uNew = newGrid(n)[uid];
 
+				const vector<T> gradC = gradient(oldGrid, x, cid);
+				const vector<T> gradU = gradient(oldGrid, x, uid);
+				const double dotgradCU = gradC * gradU;
+
+				const double M = M0 / std::pow(1.0 + cOld*cOld, 2.);
+
 				// Plug iteration results into original system of equations
-				const double Ax1 = cNew - dt * M * lap[uid];
-				const double Ax2 = uNew - dfcontractivedc(cNew, cNew) + kappa * lap[cid];
-				const double Ax3 = lap[pid];
+				const double Ax1 = (1. + 2. * M * dt * dotgradCU) * cNew
+					             - (M0 * dt / (1. + cNew*cNew)) * lap[uid];
+				const double Ax2 = uNew + kappa * lap[cid] - dfcontractivedc(cNew, cNew);
+				const double Ax3 = lap[pid] + k * cNew / epsilon;
 
 				const double b1 = cOld;
-				const double b2 = dfexpansivedc(cOld, pOld);
-				const double b3 = -k * cOld / epsilon;
+				const double b2 = dfexpansivedc(cOld, pOld) + k * pOld + k * pExt(oldGrid, x);
+				const double b3 = k * cOld / epsilon;
 
 				// Compute the Error from parts of the solution
 				const double r1 = b1 - Ax1;
