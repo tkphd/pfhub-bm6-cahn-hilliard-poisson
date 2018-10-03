@@ -56,19 +56,61 @@ double Helmholtz(const grid<dim,vector<T> >& GRID, const T& C0)
 template<int dim, typename T>
 double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP::vector<int>& x, const int field)
 {
+	if (dim > 2) {
+		std::cerr << "ERROR: pointerLaplacian is only available for 1- and 2-D fields." << std::endl;
+		MMSP::Abort(-1);
+	}
+
 	double laplacian = 0.0;
-	MMSP::vector<int> s = x;
 
-	for (int i=0; i<dim; i++) {
-		double weight = 1.0 / pow(dx(GRID, i), 2.0);
+	const double wx = 1.0 / (MMSP::dx(GRID, 0) * MMSP::dx(GRID, 0));
+	const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(GRID) + MMSP::y1(GRID) - MMSP::y0(GRID);
+	const int deltay = 1;
 
-		s[i] += 1;
-		const T& yh = GRID(s)[field];
-		s[i] -= 2;
-		const T& yl = GRID(s)[field];
-		s[i] += 1;
+	const MMSP::vector<T>* const c = &(GRID(x));
+	const MMSP::vector<T>* const l = (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)  ) ? c : c - deltax;
+	const MMSP::vector<T>* const h = (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) ? c : c + deltax;
 
-		laplacian += weight * (yh + yl);
+	// No-flux on composition and chemical potential
+	if (field == cid || field == uid) {
+		laplacian += wx * ((*h)[field] + (*l)[field]);
+	} else {
+		// External field on electrostatic potential, Eqn. 13
+		if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
+			laplacian += wx * (*h)[field]
+			          +  0.0002 * MMSP::dx(GRID,1)*x[1] - 0.01
+		              +  0.0002 * MMSP::dx(GRID,0)*x[0] + 0.02;
+		} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
+			laplacian += 0.0002*MMSP::dx(GRID,1)*x[1] - 0.01
+			          +  0.0002*MMSP::dx(GRID,0)*x[0] + 0.02
+			          -  wx * ((*c)[field] - (*l)[field]);
+		} else {
+			laplacian += wx * ((*h)[field] + (*l)[field]);
+	}
+	}
+
+	if (dim == 2) {
+		const double wy = 1.0 / (MMSP::dx(GRID, 1) * MMSP::dx(GRID, 1));
+		const MMSP::vector<T>* const cl = (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::y0(GRID)  ) ? c : c - deltay;
+		const MMSP::vector<T>* const ch = (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::y1(GRID)-1) ? c : c + deltay;
+
+		// No-flux on composition and chemical potential
+		if (field == cid || field == uid) {
+			laplacian += wy * ((*ch)[field] + (*cl)[field]);
+		} else {
+			// External field on electrostatic potential, Eqn. 13
+			if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
+				laplacian += wy * (*ch)[field]
+				          +  0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
+				          +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02;
+			} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
+				laplacian += 0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
+				          +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02
+				          +  wy * (*l)[field];
+			} else {
+				laplacian += wy * ((*h)[field] + (*l)[field]);
+			}
+		}
 	}
 
 	return laplacian;
@@ -92,15 +134,44 @@ MMSP::vector<T> pointerLaplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, c
 	const MMSP::vector<T>* const c = &(GRID(x));
 	const MMSP::vector<T>* const l = (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)  ) ? c : c - deltax;
 	const MMSP::vector<T>* const h = (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) ? c : c + deltax;
-	for (int j = 0; j < N; j++)
-		laplacian[j] += wx * ((*h)[j] - 2. * (*c)[j] + (*l)[j]);
+
+	// No-flux on composition and chemical potential
+	laplacian[cid] += wx * ((*h)[cid] - 2. * (*c)[cid] + (*l)[cid]);
+	laplacian[uid] += wx * ((*h)[uid] - 2. * (*c)[uid] + (*l)[uid]);
+
+	// External field on electrostatic potential, Eqn. 13
+	if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
+		laplacian[pid] += wx * ((*h)[pid] - (*c)[pid])
+			           +  0.0002 * MMSP::dx(GRID,1)*x[1] - 0.01
+		               +  0.0002 * MMSP::dx(GRID,0)*x[0] + 0.02;
+	} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
+		laplacian[pid] += 0.0002*MMSP::dx(GRID,1)*x[1] - 0.01
+			           +  0.0002*MMSP::dx(GRID,0)*x[0] + 0.02
+			           -  wx * ((*c)[pid] - (*l)[pid]);
+	} else {
+		laplacian[pid] += wx * ((*h)[pid] - 2. * (*c)[pid] + (*l)[pid]);
+	}
 
 	if (dim == 2) {
 		const double wy = 1.0 / (MMSP::dx(GRID, 1) * MMSP::dx(GRID, 1));
 		const MMSP::vector<T>* const cl = (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::y0(GRID)  ) ? c : c - deltay;
 		const MMSP::vector<T>* const ch = (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::y1(GRID)-1) ? c : c + deltay;
-		for (int j = 0; j < N; j++) {
-			laplacian[j] +=  wy * ((*ch)[j] - 2. * (*c)[j] + (*cl)[j]);
+
+		// No-flux on composition and chemical potential
+		laplacian[cid] += wy * ((*ch)[cid] - 2. * (*c)[cid] + (*cl)[cid]);
+		laplacian[uid] += wy * ((*ch)[uid] - 2. * (*c)[uid] + (*cl)[uid]);
+
+		// External field on electrostatic potential, Eqn. 13
+		if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
+			laplacian[pid] += wy * ((*ch)[pid] - (*c)[pid])
+				           +  0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
+				           +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02;
+		} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
+			laplacian[pid] += 0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
+				           +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02
+				           -  wy * ((*c)[pid] - (*l)[pid]);
+		} else {
+			laplacian[pid] += wy * ((*h)[pid] - 2. * (*c)[pid] + (*l)[pid]);
 		}
 	}
 
@@ -157,6 +228,12 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 			for (int n=0; n<nodes(oldGrid); n++) {
 				// Within these iterations, "x_n" --> "xOld" and "x_{n+1}" --> "xGuess".
 				vector<int> x = position(oldGrid,n);
+				double myLapWeight = lapWeight;
+				if (MMSP::b0(oldGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(oldGrid)) {
+					myLapWeight -= 1.0 / std::pow(dx(oldGrid, 0), 2.0);
+				} else if (MMSP::b1(oldGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(oldGrid)-1) {
+					myLapWeight -= 1.0 / std::pow(dx(oldGrid, 1), 2.0);
+				}
 
 				// Determine tile color
 				int x_sum=0;
@@ -178,29 +255,29 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 
 				// A is defined by the last guess, stored in newGrid(n).
 				// It is a 3x3 matrix.
-				const double a11 = 1. + (2. * dotgradCU * M0 * dt) / std::pow(1. + cOld*cOld, 2.);
-				const double a12 = lapWeight * dt * M0 / (1.0 + cOld * cOld);
-				const double a21 = -kappa * lapWeight - dfcontractivedc(cOld, 1.0);
-				const double a31 = k / epsilon;
-				const double a33 = -lapWeight;
+				double a11 = 1. + (2. * dotgradCU * M0 * dt) / std::pow(1. + cOld*cOld, 2.);
+				double a12 = myLapWeight * dt * M0 / (1.0 + cOld * cOld);
+				double a21 = -kappa * myLapWeight - dfcontractivedc(cOld, 1.0);
+				double a31 = k / epsilon;
+				double a33 = -myLapWeight;
 
 				// B is defined by the last value, stored in oldGrid(n), and the
 				// last guess, stored in newGrid(n). It is a 3x1 column.
-				const double flapU = fringe_laplacian(newGrid, x, uid);
-				const double flapP = fringe_laplacian(newGrid, x, pid);
+				double flapU = fringe_laplacian(newGrid, x, uid);
+				double flapP = fringe_laplacian(newGrid, x, pid);
 
-				const double b1 = cOld + dt * flapU;
-				const double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
-				const double b3 = k * cOld / epsilon - flapP;
+				double b1 = cOld + dt * flapU;
+				double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
+				double b3 = k * cOld / epsilon - flapP;
 
 				// Solve the iteration system AX=B using Cramer's rule
-				const double detA  = a33 * (a11 - a12 * a21);
-				const double detA1 = a33 * (b1 - a12 * b2 );
-				const double detA2 = a33 * (b2 - b1  * a21);
-				const double detA3 = 1.0 * (a11 - b1 * a31) + a12 * (b2 * a31 - a21 * b3);
+				double detA  = a33 * (a11 - a12 * a21);
+				double detA1 = a33 * (b1 - a12 * b2 );
+				double detA2 = a33 * (b2 - b1  * a21);
+				double detA3 = 1.0 * (a11 - b1 * a31) + a12 * (b2 * a31 - a21 * b3);
 
-				const T cNew = detA1 / detA;
-				const T uNew = detA2 / detA;
+				T cNew = detA1 / detA;
+				T uNew = detA2 / detA;
 				T pNew = detA3 / detA;
 
 				// (Don't) Apply relaxation
@@ -290,7 +367,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 			residual = (std::fabs(normB) > tolerance) ? sqrt(residual/normB)/(3.0*gridSize) : 0.0;
 
 			#ifdef DEBUG
-			double F = Helmholtz(oldGrid);
+			double F = Helmholtz(oldGrid, C0);
 
 			if (rank == 0)
 				of << iter << '\t' << residual << '\t' << F << '\n';
@@ -298,9 +375,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 
 			#ifdef DEBUG
 			if (iter % 10 ==0) {
-				if (rank == 0) {
-					std::cout << " res. " << residual << std::endl;
-				}
+				std::cout << " res. " << residual << std::endl;
 			}
 			#endif
 		}
@@ -426,7 +501,7 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 		c0 += oldGrid(n)[cid];
 	c0 /= nodes(oldGrid);
 
-#ifndef DEBUG
+	#ifndef DEBUG
 	std::ofstream of;
 	if (rank == 0)
 		of.open("energy_dx02.tsv", std::ofstream::out | std::ofstream::app); // new results will be appended

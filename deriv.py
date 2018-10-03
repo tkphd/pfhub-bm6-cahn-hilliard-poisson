@@ -44,7 +44,19 @@ plt.plot(x, yexp, label="exp")
 plt.plot(x, ycon + yexp, label="tot")
 plt.xlim([-0.1, 1.1])
 plt.ylim([-0.5, 0.5])
-plt.xlabel("$c$")
-plt.ylabel("${f_{\mathrm{chem}}$")
+plt.xlabel(r"$c$")
+plt.ylabel(r"$f_{\mathrm{chem}}$")
 plt.legend(loc="best")
 plt.savefig("fchem.png", bbox_inches="tight", dpi=400)
+
+print("Figures generated. Doing math...")
+
+from sympy.abc import A, B, C
+from sympy.vector import CoordSys3D, Del, divergence
+R = CoordSys3D('R')
+delop = Del()
+
+Phi = A*R.x*R.y + B*R.x + C*R.y
+print("Phi = ", Phi)
+print("gradPhi = ", delop(Phi).doit())
+print("lapPhi = ", divergence(delop(Phi).doit()))
