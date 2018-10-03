@@ -78,12 +78,12 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 		// External field on electrostatic potential, Eqn. 13
 		if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
 			laplacian += wx * (*h)[field]
-			          +  0.0002 * MMSP::dx(GRID,1)*x[1] - 0.01
-		              +  0.0002 * MMSP::dx(GRID,0)*x[0] + 0.02;
+			          +  0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
+		              +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02;
 		} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
-			laplacian += 0.0002*MMSP::dx(GRID,1)*x[1] - 0.01
-			          +  0.0002*MMSP::dx(GRID,0)*x[0] + 0.02
-			          -  wx * ((*c)[field] - (*l)[field]);
+			laplacian += 0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
+			          +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02
+			          +  wx * (*l)[field];
 		} else {
 			laplacian += wx * ((*h)[field] + (*l)[field]);
 	}
@@ -255,30 +255,30 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 
 				// A is defined by the last guess, stored in newGrid(n).
 				// It is a 3x3 matrix.
-				double a11 = 1. + (2. * dotgradCU * M0 * dt) / std::pow(1. + cOld*cOld, 2.);
-				double a12 = myLapWeight * dt * M0 / (1.0 + cOld * cOld);
-				double a21 = -kappa * myLapWeight - dfcontractivedc(cOld, 1.0);
-				double a31 = k / epsilon;
-				double a33 = -myLapWeight;
+				const double a11 = 1. + (2. * dotgradCU * M0 * dt) / std::pow(1. + cOld*cOld, 2.);
+				const double a12 = myLapWeight * dt * M0 / (1.0 + cOld * cOld);
+				const double a21 = -kappa * myLapWeight - dfcontractivedc(cOld, 1.0);
+				const double a31 = k / epsilon;
+				const double a33 = -myLapWeight;
 
 				// B is defined by the last value, stored in oldGrid(n), and the
 				// last guess, stored in newGrid(n). It is a 3x1 column.
-				double flapU = fringe_laplacian(newGrid, x, uid);
-				double flapP = fringe_laplacian(newGrid, x, pid);
+				const double flapU = fringe_laplacian(newGrid, x, uid);
+				const double flapP = fringe_laplacian(newGrid, x, pid);
 
-				double b1 = cOld + dt * flapU;
-				double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
-				double b3 = k * cOld / epsilon - flapP;
+				const double b1 = cOld + dt * flapU;
+				const double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
+				const double b3 = k * cOld / epsilon - flapP;
 
 				// Solve the iteration system AX=B using Cramer's rule
-				double detA  = a33 * (a11 - a12 * a21);
-				double detA1 = a33 * (b1 - a12 * b2 );
-				double detA2 = a33 * (b2 - b1  * a21);
-				double detA3 = 1.0 * (a11 - b1 * a31) + a12 * (b2 * a31 - a21 * b3);
+				const double detA  = a33 * (a11 - a12 * a21);
+				const double detA1 = a33 * (b1 - a12 * b2 );
+				const double detA2 = a33 * (b2 - b1  * a21);
+				const double detA3 = 1.0 * (a11 - b1 * a31) + a12 * (b2 * a31 - a21 * b3);
 
-				T cNew = detA1 / detA;
-				T uNew = detA2 / detA;
-				T pNew = detA3 / detA;
+				const T cNew = detA1 / detA;
+				const T uNew = detA2 / detA;
+				const T pNew = detA3 / detA;
 
 				// (Don't) Apply relaxation
 				newGrid(n)[cid] = omega * cNew + (1.0 - omega) * cGuess;
@@ -286,7 +286,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				newGrid(n)[pid] = omega * pNew + (1.0 - omega) * pGuess;
 
 			}
-			ghostswap(newGrid);   // fill in the ghost cells; does nothing in serial
+			ghostswap(newGrid);
 		}
 
 		iter++;
