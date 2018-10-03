@@ -26,7 +26,7 @@ const double kappa = 2.0;
 const double M0    = 10.0;
 
 // Gauss-Seidel parameters
-double tolerance = 1.0e-12;      // Choose wisely. 1e-10 is the minimum tolerance for which mass is conserved.
+double tolerance = 1.25e-6;      // Choose wisely. 1e-10 is the minimum tolerance for which mass is conserved.
 unsigned int residual_step = 10; // number of iterations between residual computations
 unsigned int max_iter = 1000000; // don't let the solver stagnate
 double omega = 1.2;              // relaxation parameter (default is 1.2): 1 is stock Gauss-Seidel, 1.2 is successive over-relaxation, 0.8 is successive under-relaxation.

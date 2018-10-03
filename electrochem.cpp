@@ -181,6 +181,14 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 
 		iter++;
 
+		#ifdef DEBUG
+		if (iter % 10 ==0) {
+			if (rank == 0) {
+				std::cout << "Iter. " << iter << ", " << std::flush;
+			}
+		}
+		#endif
+
 		/*  ==== RESIDUAL ====
 		    The residual is computed from the original matrix form, Ax=b:
 		    any Old term goes into B, while any New term goes in AX. Note that
@@ -253,6 +261,14 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 
 			if (rank == 0)
 				of << iter << '\t' << residual << '\t' << F << '\n';
+			#endif
+
+			#ifdef DEBUG
+			if (iter % 10 ==0) {
+				if (rank == 0) {
+					std::cout << " res. " << residual << std::endl;
+				}
+			}
 			#endif
 		}
 	}
