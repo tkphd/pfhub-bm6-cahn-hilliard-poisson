@@ -74,6 +74,39 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 	return laplacian;
 }
 
+template <int dim, typename T>
+MMSP::vector<T> pointerLaplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP::vector<int>& x)
+{
+	if (dim > 2) {
+		std::cerr << "ERROR: pointerLaplacian is only available for 1- and 2-D fields." << std::endl;
+		MMSP::Abort(-1);
+	}
+
+	const int N = MMSP::fields(GRID);
+	MMSP::vector<T> laplacian(N, 0.0);
+
+	const double wx = 1.0 / (MMSP::dx(GRID, 0) * MMSP::dx(GRID, 0));
+	const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(GRID) + MMSP::y1(GRID) - MMSP::y0(GRID);
+	const int deltay = 1;
+
+	const MMSP::vector<T>* const c = &(GRID(x));
+	const MMSP::vector<T>* const l = (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)  ) ? c : c - deltax;
+	const MMSP::vector<T>* const h = (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) ? c : c + deltax;
+	for (int j = 0; j < N; j++)
+		laplacian[j] += wx * ((*h)[j] - 2. * (*c)[j] + (*l)[j]);
+
+	if (dim == 2) {
+		const double wy = 1.0 / (MMSP::dx(GRID, 1) * MMSP::dx(GRID, 1));
+		const MMSP::vector<T>* const cl = (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::y0(GRID)  ) ? c : c - deltay;
+		const MMSP::vector<T>* const ch = (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::y1(GRID)-1) ? c : c + deltay;
+		for (int j = 0; j < N; j++) {
+			laplacian[j] +=  wy * ((*ch)[j] - 2. * (*c)[j] + (*cl)[j]);
+		}
+	}
+
+	return laplacian;
+}
+
 template<int dim,typename T>
 unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<dim,vector<T> >& newGrid)
 {
@@ -204,7 +237,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 			#endif
 			for (int n=0; n<nodes(newGrid); n++) {
 				vector<int> x = position(newGrid,n);
-				vector<T> lap = laplacian(newGrid, x);
+				const vector<T> lap = pointerLaplacian(newGrid, x);
 
 				const T cOld = oldGrid(n)[cid];
 				const T pOld = oldGrid(n)[pid];
@@ -222,7 +255,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const double Ax1 = (1. + 2. * M * dt * dotgradCU) * cNew
 					             - (M0 * dt / (1. + cNew*cNew)) * lap[uid];
 				const double Ax2 = uNew + kappa * lap[cid] - dfcontractivedc(cNew, cNew);
-				const double Ax3 = lap[pid] + k * cNew / epsilon;
+				const double Ax3 = lap[uid] + k * cNew / epsilon;
 
 				const double b1 = cOld;
 				const double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
