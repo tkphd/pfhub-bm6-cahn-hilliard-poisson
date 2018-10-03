@@ -12,9 +12,9 @@
 namespace MMSP {
 
 /*
-	Field 0 is composition.
-	Field 1 is chemical potential.
-	Field 2 is electrostatic potential.
+	Field 0 is [c] composition.
+	Field 1 is [u] chemical potential.
+	Field 2 is [p] electrostatic potential.
 */
 
 // Numerical parameters
@@ -23,7 +23,7 @@ const double dt = 0.05;
 const double CFL = (24.0 * M0 * kappa) / (2.0 * std::pow(deltaX, 4));
 
 template <int dim,typename T>
-double Helmholtz(const grid<dim,vector<T> >& GRID)
+double Helmholtz(const grid<dim,vector<T> >& GRID, const T& C0)
 {
 	double dV = 1.0;
 	for (int d=0; d<dim; d++)
@@ -38,7 +38,7 @@ double Helmholtz(const grid<dim,vector<T> >& GRID)
 		vector<double> gradc = gradient(GRID, x, cid);
 
 		fchem += chemenergy(GRID(n)[cid]);
-		felec += elecenergy(GRID(n)[cid], GRID(n)[pid]);
+		felec += elecenergy(GRID(n)[cid], C0, GRID(n)[pid]);
 		fgrad += gradc * gradc;
 	}
 
@@ -75,7 +75,7 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 }
 
 template<int dim,typename T>
-unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,vector<T> >& newGrid)
+unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<dim,vector<T> >& newGrid)
 {
 	#ifdef DEBUG
 	int rank=0;
@@ -157,7 +157,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				const double flapP = fringe_laplacian(newGrid, x, pid);
 
 				const double b1 = cOld + dt * flapU;
-				const double b2 = dfexpansivedc(cOld, pOld) + k * pOld + k * pExt(oldGrid, x);
+				const double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
 				const double b3 = k * cOld / epsilon - flapP;
 
 				// Solve the iteration system AX=B using Cramer's rule
@@ -225,7 +225,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 				const double Ax3 = lap[pid] + k * cNew / epsilon;
 
 				const double b1 = cOld;
-				const double b2 = dfexpansivedc(cOld, pOld) + k * pOld + k * pExt(oldGrid, x);
+				const double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
 				const double b3 = k * cOld / epsilon;
 
 				// Compute the Error from parts of the solution
@@ -283,6 +283,12 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, grid<dim,v
 
 void generate(int dim, const char* filename)
 {
+	/*
+	  Field 0 is [c] composition.
+	  Field 1 is [u] chemical potential.
+	  Field 2 is [p] electrostatic potential.
+	*/
+
 	int rank=0;
 	#ifdef MPI_VERSION
 	rank = MPI::COMM_WORLD.Get_rank();
@@ -292,11 +298,6 @@ void generate(int dim, const char* filename)
 		std::cerr << "ERROR: CHiMaD problems are 2-D, only!" << std::endl;
 		std::exit(-1);
 	}
-
-	/*	Grid contains three fields:
-		0: composition
-		1: chemical potential
-		2: electrostatic potential  */
 
 	if (dim==2) {
 		const int L = 100 / deltaX;
@@ -330,7 +331,9 @@ void generate(int dim, const char* filename)
 
 		double c0 = 0.0;
 		for (int n=0; n<nodes(initGrid); n++)
-			c0 += deltaX * deltaX * initGrid(n)[cid];
+			c0 += initGrid(n)[cid];
+		c0 /= nodes(initGrid);
+		std::cout << "System composition is " << c0 << std::endl;
 
 		#ifdef _OPENMP
 		#pragma omp parallel for
@@ -385,7 +388,12 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 		}
 	}
 
-	#ifndef DEBUG
+	double c0 = 0.0;
+	for (int n=0; n<nodes(oldGrid); n++)
+		c0 += oldGrid(n)[cid];
+	c0 /= nodes(oldGrid);
+
+#ifndef DEBUG
 	std::ofstream of;
 	if (rank == 0)
 		of.open("energy_dx02.tsv", std::ofstream::out | std::ofstream::app); // new results will be appended
@@ -397,7 +405,7 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 
 		ghostswap(newGrid);
 
-		unsigned int iter = RedBlackGaussSeidel(oldGrid, newGrid);
+		unsigned int iter = RedBlackGaussSeidel(oldGrid, c0, newGrid);
 
 		#ifdef MPI_VERSION
 		unsigned int myit(iter);
@@ -415,7 +423,7 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 
 		#ifndef DEBUG
 		elapsed += dt;
-		const double F = Helmholtz(oldGrid);
+		const double F = Helmholtz(oldGrid, c0);
 		if (rank == 0)
 			of << elapsed << '\t' << F << '\n';
 		#endif

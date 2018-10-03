@@ -14,8 +14,8 @@
 const double w  = 5.0;  // well height
 const double Ca = 0.30; // alpha composition
 const double Cb = 0.70; // beta composition
-const double C0 = 0.50; // system composition
-const double C1 = 0.04; // fluctuation magnitude
+const double Cs = 0.50; // system composition
+const double Cf = 0.04; // fluctuation magnitude
 
 // Electrostatic parameters
 const double k       = 0.3;  // charge-neutralization factor
@@ -35,7 +35,7 @@ double omega = 1.2;              // relaxation parameter (default is 1.2): 1 is 
 double cheminit(const double& x, const double& y)
 {
 	// Equation 12
-	return C0 + C1 * ( std::cos(0.200 * x) * std::cos(0.110 * y)
+	return Cs + Cf * ( std::cos(0.200 * x) * std::cos(0.110 * y)
 	                 + std::pow(std::cos(0.130 * x) * std::cos(0.087 * y), 2.0)
 	                 + std::cos(0.025 * x - 0.150*y)
 	                 * std::cos(0.070 * x - 0.020 * y));
@@ -51,7 +51,7 @@ double chemenergy(const T& C)
 }
 
 template<typename T>
-double elecenergy(const T& C, const T& P)
+double elecenergy(const T& C, const T& C0, const T& P)
 {
 	// Equation 3
 	const double rhoTot = k * (C - C0);
@@ -61,15 +61,12 @@ double elecenergy(const T& C, const T& P)
 template <int dim, typename T>
 double pExt(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP::vector<int>& x)
 {
-	const double A = 0.0002;
-	const double B =-0.0100;
-	const double C = 0.0200;
 	const double hx = MMSP::dx(GRID);
 	const double hy = MMSP::dy(GRID);
 
-	return A * hx * x[0] * hy * x[1]
-		 + B * hx * x[0]
-	 	 + C * hy * x[1];
+	return 0.0002 * hx * x[0] * hy * x[1]
+	     - 0.0100 * hx * x[0]
+	     + 0.0200 * hy * x[1];
 }
 
 // Energy derivatives
@@ -83,7 +80,7 @@ double dfchemdc(const T& C)
 }
 
 template<typename T>
-double dfelecdc(const T& P)
+double dfelecdc(const T& C0, const T& P)
 {
 	return 0.5 * k * (1. - C0) * P;
 }
@@ -96,10 +93,10 @@ double dfcontractivedc(const T& C, const T& Cnew)
 }
 
 template<typename T>
-double dfexpansivedc(const T& C, const T& P)
+double dfexpansivedc(const T& C, const T& C0, const T& P)
 {
 	return - 2.0 * w * (3.0 * (Ca + Cb) * C*C + Ca * Cb * (Ca + Cb))
-		   + 2.0 * dfelecdc(P);
+		+ 2.0 * dfelecdc(P, C0);
 }
 
 // Discrete Laplacian operator missing the central value, for implicit source terms
