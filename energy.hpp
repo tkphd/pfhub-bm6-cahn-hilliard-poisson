@@ -11,7 +11,7 @@
 #define pid 2
 
 // Composition parameters
-const double w  = 5.0;  // well height
+const double w  = 5.00;  // well height
 const double Ca = 0.30; // alpha composition
 const double Cb = 0.70; // beta composition
 const double Cs = 0.50; // system composition
@@ -26,10 +26,12 @@ const double kappa = 2.0;
 const double M0    = 10.0;
 
 // Gauss-Seidel parameters
-double tolerance = 1.25e-6;      // Choose wisely. 1e-10 is the minimum tolerance for which mass is conserved.
-unsigned int residual_step = 10; // number of iterations between residual computations
-unsigned int max_iter = 1000000; // don't let the solver stagnate
-double omega = 1.2;              // relaxation parameter (default is 1.2): 1 is stock Gauss-Seidel, 1.2 is successive over-relaxation, 0.8 is successive under-relaxation.
+const double tolerance = 5e-6;        // threshold residual ||b - Ax||₂ required to end iteration
+const unsigned int residual_step = 5; // number of iterations between residual computations
+const unsigned int max_iter = 1000;   // don't let the solver stagnate
+const double omega = 1.2;             // relaxation parameter (default is 1.2):
+                                      // omega = 1.0 is stock Gauss-Seidel,
+                                      // omega = 1.2 is successive over-relaxation.
 
 // Energy equations
 double cheminit(const double& x, const double& y)
@@ -37,7 +39,7 @@ double cheminit(const double& x, const double& y)
 	// Equation 12
 	return Cs + Cf * ( std::cos(0.200 * x) * std::cos(0.110 * y)
 	                 + std::pow(std::cos(0.130 * x) * std::cos(0.087 * y), 2.0)
-	                 + std::cos(0.025 * x - 0.150*y)
+	                 + std::cos(0.025 * x - 0.150 * y)
 	                 * std::cos(0.070 * x - 0.020 * y));
 }
 

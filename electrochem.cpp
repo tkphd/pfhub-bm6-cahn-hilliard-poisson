@@ -18,9 +18,9 @@ namespace MMSP {
 */
 
 // Numerical parameters
-const double deltaX = 0.2;
-const double dt = 0.05;
-const double CFL = (24.0 * M0 * kappa) / (2.0 * std::pow(deltaX, 4));
+const double deltaX = 0.5;
+const double dt = 0.0384 * (2.0 * std::pow(deltaX, 4) / (24.0 * M0 * kappa));
+const double CFL = (24.0 * M0 * kappa * dt) / (2.0 * std::pow(deltaX, 4));
 
 template <int dim,typename T>
 double Helmholtz(const grid<dim,vector<T> >& GRID, const T& C0)
@@ -251,11 +251,13 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const vector<T> gradC = gradient(oldGrid, x, cid);
 				const vector<T> gradU = gradient(oldGrid, x, uid);
 				const double dotgradCU = gradC * gradU;
+				const double M = M0 / std::pow(1.0 + cOld * cOld, 2.);
+				const double dMdc = M0 / (1.0 + cOld * cOld);
 
 				// A is defined by the last guess, stored in newGrid(n).
 				// It is a 3x3 matrix.
-				const double a11 = 1. + (2. * dotgradCU * M0 * dt) / std::pow(1. + cOld*cOld, 2.);
-				const double a12 = myLapWeight * dt * M0 / (1.0 + cOld * cOld);
+				const double a11 = 1. + 2. * dotgradCU * M * dt;
+				const double a12 = myLapWeight * dt * dMdc;
 				const double a21 = -kappa * myLapWeight - dfcontractivedc(cOld, 1.0);
 				const double a22 = 1.0;
 				const double a23 = -k;
@@ -268,7 +270,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const double flapU = fringe_laplacian(newGrid, x, uid);
 				const double flapP = fringe_laplacian(newGrid, x, pid);
 
-				const double b1 = cOld + dt * M0 * flapU / (1.0 + cOld * cOld);
+				const double b1 = cOld + dt * dMdc * flapU;
 				const double b2 = dfexpansivedc(cOld) - kappa * flapC + k * pExt(oldGrid, x);
 				const double b3 = k * C0 / epsilon - flapP;
 
@@ -293,14 +295,6 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 
 		iter++;
 
-		#ifdef DEBUG
-		if (iter % 10 ==0) {
-			if (rank == 0) {
-				std::cout << "Iter. " << iter << ", " << std::flush;
-			}
-		}
-		#endif
-
 		/*  ==== RESIDUAL ====
 		    The residual is computed from the original matrix form, Ax=b:
 		    any Old term goes into B, while any New term goes in AX. Note that
@@ -319,25 +313,26 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const vector<T> lap = pointerLaplacian(newGrid, x);
 
 				const T cOld = oldGrid(n)[cid];
-				const T pOld = oldGrid(n)[pid];
 
 				const T cNew = newGrid(n)[cid];
 				const T uNew = newGrid(n)[uid];
+				const T pNew = newGrid(n)[pid];
 
-				const vector<T> gradC = gradient(oldGrid, x, cid);
-				const vector<T> gradU = gradient(oldGrid, x, uid);
+				const vector<T> gradC = gradient(newGrid, x, cid);
+				const vector<T> gradU = gradient(newGrid, x, uid);
 				const double dotgradCU = gradC * gradU;
 
-				const double M = M0 / std::pow(1.0 + cOld*cOld, 2.);
+				const double M = M0 / std::pow(1.0 + cNew * cNew, 2.);
+				const double dMdc = M0 / (1.0 + cNew * cNew);
 
 				// Plug iteration results into original system of equations
-				const double Ax1 = (1. + 2. * M * dt * dotgradCU / std::pow(1. + cNew*cNew, 2.)) * cNew
-					             - (M0 * dt / (1. + cNew*cNew)) * lap[uid];
-				const double Ax2 = uNew + kappa * lap[cid] - dfcontractivedc(cNew, cNew);
-				const double Ax3 = lap[uid] + k * cNew / epsilon;
+				const double Ax1 = (1. + 2. * M * dt * dotgradCU) * cNew
+				                 - (dMdc * dt) * lap[uid];
+				const double Ax2 = uNew + kappa * lap[cid] - dfcontractivedc(cNew, cNew) - k * pNew;
+				const double Ax3 = lap[pid] + k * cNew / epsilon;
 
 				const double b1 = cOld;
-				const double b2 = dfexpansivedc(cOld) + k * pOld + k * pExt(oldGrid, x);
+				const double b2 = dfexpansivedc(cOld) + k * pExt(oldGrid, x);
 				const double b3 = k * C0 / epsilon;
 
 				// Compute the Error from parts of the solution
@@ -369,16 +364,10 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 			residual = (std::fabs(normB) > tolerance) ? sqrt(residual/normB)/(3.0*gridSize) : 0.0;
 
 			#ifdef DEBUG
-			double F = Helmholtz(oldGrid, C0);
+			double F = Helmholtz(newGrid, C0);
 
 			if (rank == 0)
-				of << iter << '\t' << residual << '\t' << F << '\n';
-			#endif
-
-			#ifdef DEBUG
-			if (iter % 10 ==0) {
-				std::cout << " res. " << residual << std::endl;
-			}
+				of << iter << '\t' << residual << '\t' << F << std::endl;
 			#endif
 		}
 	}
@@ -412,9 +401,11 @@ void generate(int dim, const char* filename)
 	if (dim==2) {
 		const int L = 100 / deltaX;
 		GRID2D initGrid(3, 0,L, 0,L);
+		double gridSize = 1.0;
 		for (int d=0; d<dim; d++) {
 			// Set grid resolution
-			dx(initGrid,d) = deltaX;
+			dx(initGrid, d) = deltaX;
+			gridSize *= double(g1(initGrid, d) - g0(initGrid, d));
 
 			// Set Neumann (zero-flux) boundary conditions
 			if (x0(initGrid, d) == g0(initGrid, d))
@@ -442,7 +433,11 @@ void generate(int dim, const char* filename)
 		double c0 = 0.0;
 		for (int n=0; n<nodes(initGrid); n++)
 			c0 += initGrid(n)[cid];
-		c0 /= nodes(initGrid);
+		#ifdef MPI_VERSION
+		double myC(c0);
+		MPI::COMM_WORLD.Allreduce(&myC, &c0, 1, MPI_DOUBLE, MPI_SUM);
+		#endif
+		c0 /= gridSize;
 		std::cout << "System composition is " << c0 << std::endl;
 
 		#ifdef _OPENMP
@@ -483,9 +478,11 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 	newGrid.copy(oldGrid);
 
 	// Make sure the grid spacing is correct
+	double gridSize = 1.0;
 	for (int d=0; d<dim; d++) {
 		dx(oldGrid,d) = deltaX;
 		dx(newGrid,d) = deltaX;
+		gridSize *= double(g1(oldGrid, d) - g0(oldGrid, d));
 
 		// Set Neumann (zero-flux) boundary conditions
 		if (x0(oldGrid, d) == g0(oldGrid, d)) {
@@ -498,10 +495,15 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 		}
 	}
 
+	// compute system composition, in serial
 	double c0 = 0.0;
 	for (int n=0; n<nodes(oldGrid); n++)
 		c0 += oldGrid(n)[cid];
-	c0 /= nodes(oldGrid);
+	#ifdef MPI_VERSION
+	double myC(c0);
+	MPI::COMM_WORLD.Allreduce(&myC, &c0, 1, MPI_DOUBLE, MPI_SUM);
+	#endif
+	c0 /= gridSize;
 
 	#ifndef DEBUG
 	std::ofstream of;
