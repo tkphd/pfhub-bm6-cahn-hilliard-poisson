@@ -86,7 +86,7 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 			          +  wx * (*l)[field];
 		} else {
 			laplacian += wx * ((*h)[field] + (*l)[field]);
-	}
+		}
 	}
 
 	if (dim == 2) {
@@ -142,11 +142,11 @@ MMSP::vector<T> pointerLaplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, c
 	// External field on electrostatic potential, Eqn. 13
 	if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
 		laplacian[pid] += wx * ((*h)[pid] - (*c)[pid])
-			           +  0.0002 * MMSP::dx(GRID,1)*x[1] - 0.01
-		               +  0.0002 * MMSP::dx(GRID,0)*x[0] + 0.02;
+			           +  0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
+		               +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02;
 	} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
-		laplacian[pid] += 0.0002*MMSP::dx(GRID,1)*x[1] - 0.01
-			           +  0.0002*MMSP::dx(GRID,0)*x[0] + 0.02
+		laplacian[pid] += 0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
+			           +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02
 			           -  wx * ((*c)[pid] - (*l)[pid]);
 	} else {
 		laplacian[pid] += wx * ((*h)[pid] - 2. * (*c)[pid] + (*l)[pid]);
@@ -214,8 +214,8 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 		    If the sum of indices is even, then the tile is Red; else, Black.
 
 			This method solves the linear system of equations,
-		    [ a11  a12 0  ][ x1 ]   [ b1 ]
-		    [ a21  1   0  ][ x2 ] = [ b2 ]
+		    [ a11 a12  0  ][ x1 ]   [ b1 ]
+		    [ a21  1  a23 ][ x2 ] = [ b2 ]
 			[ a31  0  a33 ][ x3 ]   [ b3 ]
 		*/
 
@@ -243,7 +243,6 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 					continue;
 
 				const T cOld = oldGrid(n)[cid];
-				const T pOld = oldGrid(n)[pid];
 
 				const T cGuess = newGrid(n)[cid]; // value from last "guess" iteration
 				const T uGuess = newGrid(n)[uid];
@@ -258,23 +257,26 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const double a11 = 1. + (2. * dotgradCU * M0 * dt) / std::pow(1. + cOld*cOld, 2.);
 				const double a12 = myLapWeight * dt * M0 / (1.0 + cOld * cOld);
 				const double a21 = -kappa * myLapWeight - dfcontractivedc(cOld, 1.0);
+				const double a22 = 1.0;
+				const double a23 = -k;
 				const double a31 = k / epsilon;
 				const double a33 = -myLapWeight;
 
 				// B is defined by the last value, stored in oldGrid(n), and the
 				// last guess, stored in newGrid(n). It is a 3x1 column.
+				const double flapC = fringe_laplacian(newGrid, x, cid);
 				const double flapU = fringe_laplacian(newGrid, x, uid);
 				const double flapP = fringe_laplacian(newGrid, x, pid);
 
-				const double b1 = cOld + dt * flapU;
-				const double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
-				const double b3 = k * cOld / epsilon - flapP;
+				const double b1 = cOld + dt * M0 * flapU / (1.0 + cOld * cOld);
+				const double b2 = dfexpansivedc(cOld) - kappa * flapC + k * pExt(oldGrid, x);
+				const double b3 = k * C0 / epsilon - flapP;
 
 				// Solve the iteration system AX=B using Cramer's rule
-				const double detA  = a33 * (a11 - a12 * a21);
-				const double detA1 = a33 * (b1 - a12 * b2 );
-				const double detA2 = a33 * (b2 - b1  * a21);
-				const double detA3 = 1.0 * (a11 - b1 * a31) + a12 * (b2 * a31 - a21 * b3);
+				const double detA  = a33 * (a11 * a22 - a12 * a21) + a12 * a23 * a31;
+				const double detA1 = a33 * (b1  * a22 - a12 * b2 ) + a12 * a23 * b3;
+				const double detA2 = a33 * (a11 * b2  - b1  * a21) + a23 * (b1 * a31 - a11 * b3);
+				const double detA3 = a22 * (a11 * b3  - b1  * a31) + a12 * (b2 * a31 - a21 * b3);
 
 				const T cNew = detA1 / detA;
 				const T uNew = detA2 / detA;
@@ -329,14 +331,14 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const double M = M0 / std::pow(1.0 + cOld*cOld, 2.);
 
 				// Plug iteration results into original system of equations
-				const double Ax1 = (1. + 2. * M * dt * dotgradCU) * cNew
+				const double Ax1 = (1. + 2. * M * dt * dotgradCU / std::pow(1. + cNew*cNew, 2.)) * cNew
 					             - (M0 * dt / (1. + cNew*cNew)) * lap[uid];
 				const double Ax2 = uNew + kappa * lap[cid] - dfcontractivedc(cNew, cNew);
 				const double Ax3 = lap[uid] + k * cNew / epsilon;
 
 				const double b1 = cOld;
-				const double b2 = dfexpansivedc(cOld, C0, pOld) + k * pOld + k * pExt(oldGrid, x);
-				const double b3 = k * cOld / epsilon;
+				const double b2 = dfexpansivedc(cOld) + k * pOld + k * pExt(oldGrid, x);
+				const double b3 = k * C0 / epsilon;
 
 				// Compute the Error from parts of the solution
 				const double r1 = b1 - Ax1;

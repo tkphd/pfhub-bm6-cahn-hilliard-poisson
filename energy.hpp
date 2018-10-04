@@ -93,10 +93,9 @@ double dfcontractivedc(const T& C, const T& Cnew)
 }
 
 template<typename T>
-double dfexpansivedc(const T& C, const T& C0, const T& P)
+double dfexpansivedc(const T& C)
 {
-	return - 2.0 * w * (3.0 * (Ca + Cb) * C*C + Ca * Cb * (Ca + Cb))
-		+ 2.0 * dfelecdc(P, C0);
+	return - 2.0 * w * (3.0 * (Ca - Cb) * C*C + Ca * Cb * (Ca + Cb));
 }
 
 // Discrete Laplacian operator missing the central value, for implicit source terms

@@ -6,7 +6,7 @@
 
 from matplotlib import pylab as plt
 import numpy as np
-from sympy import diff, expand, factor, simplify, symbols
+from sympy import collect, diff, expand, factor, simplify, symbols
 
 c, ca, cb, p, w = symbols("c ca cb p w")
 
@@ -17,6 +17,8 @@ f = diff(F, c)
 print("F =", simplify(expand(F)))
 
 print("f =", simplify(expand(f)))
+
+print("f =", collect(expand(f), c))
 
 
 def Fcon(c):
