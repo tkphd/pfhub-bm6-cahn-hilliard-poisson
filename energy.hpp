@@ -20,18 +20,21 @@ const double Cf = 0.04; // fluctuation magnitude
 // Electrostatic parameters
 const double k       = 0.3;  // charge-neutralization factor
 const double epsilon = 20.0; // permittivity
+const double pA = 2.e-4;
+const double pB =-1.e-2;
+const double pC = 2.e-2;
 
 // Physical parameters
 const double kappa = 2.0;
 const double M0    = 10.0;
 
 // Gauss-Seidel parameters
-const double tolerance = 5e-6;        // threshold residual ||b - Ax||₂ required to end iteration
-const unsigned int residual_step = 5; // number of iterations between residual computations
-const unsigned int max_iter = 1000;   // don't let the solver stagnate
-const double omega = 1.2;             // relaxation parameter (default is 1.2):
-                                      // omega = 1.0 is stock Gauss-Seidel,
-                                      // omega = 1.2 is successive over-relaxation.
+const double tolerance = 2.e-9;        // threshold residual ||b - Ax||₂ required to end iteration
+const unsigned int residual_step = 10; // number of iterations between residual computations
+const unsigned int max_iter = 10000;   // don't let the solver stagnate
+const double omega = 1.2;              // relaxation parameter (default is 1.2):
+                                       // omega = 1.0 is stock Gauss-Seidel,
+                                       // omega = 1.2 is successive over-relaxation.
 
 // Energy equations
 double cheminit(const double& x, const double& y)
@@ -63,12 +66,12 @@ double elecenergy(const T& C, const T& C0, const T& P)
 template <int dim, typename T>
 double pExt(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP::vector<int>& x)
 {
-	const double hx = MMSP::dx(GRID);
-	const double hy = MMSP::dy(GRID);
+	const double xx = MMSP::dx(GRID) * x[0];
+	const double yy = MMSP::dy(GRID) * x[1];
 
-	return 0.0002 * hx * x[0] * hy * x[1]
-	     - 0.0100 * hx * x[0]
-	     + 0.0200 * hy * x[1];
+	return pA * xx * yy
+	     + pB * xx
+	     + pC * yy;
 }
 
 // Energy derivatives

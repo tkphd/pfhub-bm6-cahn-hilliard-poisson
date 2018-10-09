@@ -15,7 +15,7 @@ pflags = $(flags) -include mpi.h
 all: electrochem
 .PHONY: all
 
-profile: flags += -O0 -g -DDEBUG
+profile: flags += -O1 -g -DDEBUG
 profile: electrochem
 
 # the program

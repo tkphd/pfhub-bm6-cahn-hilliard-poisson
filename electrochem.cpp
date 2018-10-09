@@ -33,16 +33,36 @@ double Helmholtz(const grid<dim,vector<T> >& GRID, const T& C0)
 	double felec = 0.0;
 	double fgrad = 0.0;
 
+	#ifdef _OPENMP
+	#pragma omp parallel for
+	#endif
 	for (int n=0; n<nodes(GRID); n++) {
 		vector<int> x = position(GRID, n);
 		vector<double> gradc = gradient(GRID, x, cid);
 
-		fchem += chemenergy(GRID(n)[cid]);
-		felec += elecenergy(GRID(n)[cid], C0, GRID(n)[pid]);
-		fgrad += gradc * gradc;
+		double mychem = chemenergy(GRID(n)[cid]);
+		double myelec = elecenergy(GRID(n)[cid], C0, GRID(n)[pid]);
+		       myelec += k * (GRID(n)[cid] - C0) * pExt(GRID, x);
+		double mygrad = gradc * gradc;
+
+		#ifdef _OPENMP
+		#pragma omp atomic
+		#endif
+		fchem += mychem;
+
+		#ifdef _OPENMP
+		#pragma omp atomic
+		#endif
+		felec += myelec;
+
+		#ifdef _OPENMP
+		#pragma omp atomic
+		#endif
+		fgrad += mygrad;
+
 	}
 
-	double F = dV * (fchem + felec + 0.5 * kappa * fgrad); // Equation 5
+	double F = dV * (fchem + felec + 0.5 * kappa * fgrad); // Equation 1
 
 	#ifdef MPI_VERSION
 	double myF(F);
@@ -76,14 +96,14 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 		laplacian += wx * ((*h)[field] + (*l)[field]);
 	} else {
 		// External field on electrostatic potential, Eqn. 13
-		if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
+		if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::g0(GRID,0)) {
+			const double yy = MMSP::dx(GRID,1) * x[1];
 			laplacian += wx * (*h)[field]
-			          +  0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
-		              +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02;
-		} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
-			laplacian += 0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
-			          +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02
-			          +  wx * (*l)[field];
+				      -  (pA * yy + pB) / MMSP::dx(GRID,0);
+		} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::g1(GRID,0)-1) {
+			const double yy = MMSP::dx(GRID,1) * x[1];
+			laplacian += (pA * yy + pB) / MMSP::dx(GRID,0)
+			          -  wx * (*l)[field];
 		} else {
 			laplacian += wx * ((*h)[field] + (*l)[field]);
 		}
@@ -99,14 +119,12 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 			laplacian += wy * ((*ch)[field] + (*cl)[field]);
 		} else {
 			// External field on electrostatic potential, Eqn. 13
-			if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
-				laplacian += wy * (*ch)[field]
-				          +  0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
-				          +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02;
-			} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
-				laplacian += 0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
-				          +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02
-				          +  wy * (*l)[field];
+			if (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::g0(GRID,1)) {
+				const double xx = MMSP::dx(GRID,0) * x[0];
+				laplacian += wy * (*ch)[field] - (pA * xx + pC) / MMSP::dx(GRID,1);
+			} else if (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::g1(GRID,1)-1) {
+				const double xx = MMSP::dx(GRID,0) * x[0];
+				laplacian += (pA * xx + pC) / MMSP::dx(GRID,1) -  wy * (*l)[field];
 			} else {
 				laplacian += wy * ((*h)[field] + (*l)[field]);
 			}
@@ -140,13 +158,13 @@ MMSP::vector<T> pointerLaplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, c
 	laplacian[uid] += wx * ((*h)[uid] - 2. * (*c)[uid] + (*l)[uid]);
 
 	// External field on electrostatic potential, Eqn. 13
-	if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
+	if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::g0(GRID,0)) {
+		const double yy = MMSP::dx(GRID,1) * x[1];
 		laplacian[pid] += wx * ((*h)[pid] - (*c)[pid])
-			           +  0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
-		               +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02;
-	} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
-		laplacian[pid] += 0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
-			           +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02
+			           -  (pA * yy + pB) / MMSP::dx(GRID,0);
+	} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::g1(GRID,0)-1) {
+		const double yy = MMSP::dx(GRID,1) * x[1];
+		laplacian[pid] += (pA * yy + pB) / MMSP::dx(GRID,0)
 			           -  wx * ((*c)[pid] - (*l)[pid]);
 	} else {
 		laplacian[pid] += wx * ((*h)[pid] - 2. * (*c)[pid] + (*l)[pid]);
@@ -162,13 +180,13 @@ MMSP::vector<T> pointerLaplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, c
 		laplacian[uid] += wy * ((*ch)[uid] - 2. * (*c)[uid] + (*cl)[uid]);
 
 		// External field on electrostatic potential, Eqn. 13
-		if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)) {
+		if (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::g0(GRID,1)) {
+			const double xx = MMSP::dx(GRID,0) * x[0];
 			laplacian[pid] += wy * ((*ch)[pid] - (*c)[pid])
-				           +  0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
-				           +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02;
-		} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) {
-			laplacian[pid] += 0.0002 * MMSP::dx(GRID,1) * x[1] - 0.01
-				           +  0.0002 * MMSP::dx(GRID,0) * x[0] + 0.02
+				           -  (pA * xx + pC) / MMSP::dx(GRID,1);
+		} else if (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::g1(GRID,1)-1) {
+			const double xx = MMSP::dx(GRID,0) * x[0];
+			laplacian[pid] += (pA * xx + pC) / MMSP::dx(GRID,1)
 				           -  wy * ((*c)[pid] - (*l)[pid]);
 		} else {
 			laplacian[pid] += wy * ((*h)[pid] - 2. * (*c)[pid] + (*l)[pid]);
@@ -229,10 +247,12 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				// Within these iterations, "x_n" --> "xOld" and "x_{n+1}" --> "xGuess".
 				vector<int> x = position(oldGrid,n);
 				double myLapWeight = lapWeight;
-				if (MMSP::b0(oldGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(oldGrid)) {
-					myLapWeight -= 1.0 / std::pow(dx(oldGrid, 0), 2.0);
-				} else if (MMSP::b1(oldGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(oldGrid)-1) {
-					myLapWeight -= 1.0 / std::pow(dx(oldGrid, 1), 2.0);
+				for (int d=0; d<dim; d++) {
+					if (MMSP::b0(oldGrid,d)==MMSP::Neumann && x[d]==MMSP::g0(oldGrid,d)) {
+						myLapWeight -= 1.0 / std::pow(dx(oldGrid, d), 2.0);
+					} else if (MMSP::b1(oldGrid,d)==MMSP::Neumann && x[d]==MMSP::g1(oldGrid,d)-1) {
+						myLapWeight -= 1.0 / std::pow(dx(oldGrid, d), 2.0);
+					}
 				}
 
 				// Determine tile color
@@ -248,17 +268,17 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const T uGuess = newGrid(n)[uid];
 				T pGuess = newGrid(n)[pid];
 
-				const vector<T> gradC = gradient(oldGrid, x, cid);
-				const vector<T> gradU = gradient(oldGrid, x, uid);
+				const vector<T> gradC = gradient(newGrid, x, cid);
+				const vector<T> gradU = gradient(newGrid, x, uid);
 				const double dotgradCU = gradC * gradU;
-				const double M = M0 / std::pow(1.0 + cOld * cOld, 2.);
-				const double dMdc = M0 / (1.0 + cOld * cOld);
+				const double M = M0 / std::pow(1.0 + cGuess * cGuess, 2.);
+				const double dMdc = M0 / (1.0 + cGuess * cGuess);
 
 				// A is defined by the last guess, stored in newGrid(n).
 				// It is a 3x3 matrix.
-				const double a11 = 1. + 2. * dotgradCU * M * dt;
-				const double a12 = myLapWeight * dt * dMdc;
-				const double a21 = -kappa * myLapWeight - dfcontractivedc(cOld, 1.0);
+				const double a11 = 1. + 2. * M * dt * dotgradCU;
+				const double a12 = lapWeight * dt * dMdc;
+				const double a21 = -kappa * lapWeight - dfcontractivedc(cGuess, 1.0);
 				const double a22 = 1.0;
 				const double a23 = -k;
 				const double a31 = k / epsilon;
