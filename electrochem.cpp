@@ -38,12 +38,18 @@ double Helmholtz(const grid<dim,vector<T> >& GRID, const T& C0)
 	#endif
 	for (int n=0; n<nodes(GRID); n++) {
 		vector<int> x = position(GRID, n);
+		const double xx = dx(GRID,0) * x[0];
+		const double yy = dx(GRID,1) * x[1];
 		vector<double> gradc = gradient(GRID, x, cid);
 
-		double mychem = chemenergy(GRID(n)[cid]);
-		double myelec = elecenergy(GRID(n)[cid], C0, GRID(n)[pid]);
-		       myelec += k * (GRID(n)[cid] - C0) * pExt(GRID, x);
 		double mygrad = gradc * gradc;
+		double mychem = chemenergy(GRID(n)[cid]); // Equation 2
+		double myelec = elecenergy(GRID(n)[cid], C0, GRID(n)[pid], xx, yy); // Equation 3
+
+		#ifdef _OPENMP
+		#pragma omp atomic
+		#endif
+		fgrad += mygrad;
 
 		#ifdef _OPENMP
 		#pragma omp atomic
@@ -54,15 +60,9 @@ double Helmholtz(const grid<dim,vector<T> >& GRID, const T& C0)
 		#pragma omp atomic
 		#endif
 		felec += myelec;
-
-		#ifdef _OPENMP
-		#pragma omp atomic
-		#endif
-		fgrad += mygrad;
-
 	}
 
-	double F = dV * (fchem + felec + 0.5 * kappa * fgrad); // Equation 1
+	double F = dV * (0.5 * kappa * fgrad + fchem + felec); // Equation 1
 
 	#ifdef MPI_VERSION
 	double myF(F);
@@ -92,18 +92,16 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 	const MMSP::vector<T>* const h = (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) ? c : c + deltax;
 
 	// No-flux on composition and chemical potential
-	if (field == cid || field == uid) {
+	if (field != pid) {
 		laplacian += wx * ((*h)[field] + (*l)[field]);
 	} else {
-		// External field on electrostatic potential, Eqn. 13
+		// External field on electrostatic potential, Equation 13
 		if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::g0(GRID,0)) {
 			const double yy = MMSP::dx(GRID,1) * x[1];
-			laplacian += wx * (*h)[field]
-				      -  (pA * yy + pB) / MMSP::dx(GRID,0);
+			laplacian += wx * (*h)[field] - (-pA * yy - pB) / MMSP::dx(GRID,0);
 		} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::g1(GRID,0)-1) {
 			const double yy = MMSP::dx(GRID,1) * x[1];
-			laplacian += (pA * yy + pB) / MMSP::dx(GRID,0)
-			          -  wx * (*l)[field];
+			laplacian += (-pA * yy - pB) / MMSP::dx(GRID,0) - wx * (*l)[field];
 		} else {
 			laplacian += wx * ((*h)[field] + (*l)[field]);
 		}
@@ -121,10 +119,10 @@ double fringe_laplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, const MMSP
 			// External field on electrostatic potential, Eqn. 13
 			if (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::g0(GRID,1)) {
 				const double xx = MMSP::dx(GRID,0) * x[0];
-				laplacian += wy * (*ch)[field] - (pA * xx + pC) / MMSP::dx(GRID,1);
+				laplacian += wy * (*ch)[field] - (-pA * xx - pC) / MMSP::dx(GRID,1);
 			} else if (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::g1(GRID,1)-1) {
 				const double xx = MMSP::dx(GRID,0) * x[0];
-				laplacian += (pA * xx + pC) / MMSP::dx(GRID,1) -  wy * (*l)[field];
+				laplacian += (-pA * xx - pC) / MMSP::dx(GRID,1) - wy * (*l)[field];
 			} else {
 				laplacian += wy * ((*h)[field] + (*l)[field]);
 			}
@@ -160,12 +158,10 @@ MMSP::vector<T> pointerLaplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, c
 	// External field on electrostatic potential, Eqn. 13
 	if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::g0(GRID,0)) {
 		const double yy = MMSP::dx(GRID,1) * x[1];
-		laplacian[pid] += wx * ((*h)[pid] - (*c)[pid])
-			           -  (pA * yy + pB) / MMSP::dx(GRID,0);
+		laplacian[pid] += wx * ((*h)[pid] - (*c)[pid]) - (-pA * yy - pB) / MMSP::dx(GRID,0);
 	} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::g1(GRID,0)-1) {
 		const double yy = MMSP::dx(GRID,1) * x[1];
-		laplacian[pid] += (pA * yy + pB) / MMSP::dx(GRID,0)
-			           -  wx * ((*c)[pid] - (*l)[pid]);
+		laplacian[pid] += (-pA * yy - pB) / MMSP::dx(GRID,0) - wx * ((*c)[pid] - (*l)[pid]);
 	} else {
 		laplacian[pid] += wx * ((*h)[pid] - 2. * (*c)[pid] + (*l)[pid]);
 	}
@@ -182,12 +178,10 @@ MMSP::vector<T> pointerLaplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, c
 		// External field on electrostatic potential, Eqn. 13
 		if (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::g0(GRID,1)) {
 			const double xx = MMSP::dx(GRID,0) * x[0];
-			laplacian[pid] += wy * ((*ch)[pid] - (*c)[pid])
-				           -  (pA * xx + pC) / MMSP::dx(GRID,1);
+			laplacian[pid] += wy * ((*ch)[pid] - (*c)[pid]) - (-pA * xx - pC) / MMSP::dx(GRID,1);
 		} else if (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::g1(GRID,1)-1) {
 			const double xx = MMSP::dx(GRID,0) * x[0];
-			laplacian[pid] += (pA * xx + pC) / MMSP::dx(GRID,1)
-				           -  wy * ((*c)[pid] - (*l)[pid]);
+			laplacian[pid] += (-pA * xx - pC) / MMSP::dx(GRID,1) - wy * ((*c)[pid] - (*l)[pid]);
 		} else {
 			laplacian[pid] += wy * ((*h)[pid] - 2. * (*c)[pid] + (*l)[pid]);
 		}
@@ -246,6 +240,8 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 			for (int n=0; n<nodes(oldGrid); n++) {
 				// Within these iterations, "x_n" --> "xOld" and "x_{n+1}" --> "xGuess".
 				vector<int> x = position(oldGrid,n);
+				const double xx = dx(oldGrid,0) * x[0];
+				const double yy = dx(oldGrid,1) * x[1];
 				double myLapWeight = lapWeight;
 				for (int d=0; d<dim; d++) {
 					if (MMSP::b0(oldGrid,d)==MMSP::Neumann && x[d]==MMSP::g0(oldGrid,d)) {
@@ -266,7 +262,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 
 				const T cGuess = newGrid(n)[cid]; // value from last "guess" iteration
 				const T uGuess = newGrid(n)[uid];
-				T pGuess = newGrid(n)[pid];
+				const T pGuess = newGrid(n)[pid];
 
 				const vector<T> gradC = gradient(newGrid, x, cid);
 				const vector<T> gradU = gradient(newGrid, x, uid);
@@ -291,7 +287,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const double flapP = fringe_laplacian(newGrid, x, pid);
 
 				const double b1 = cOld + dt * dMdc * flapU;
-				const double b2 = dfexpansivedc(cOld) - kappa * flapC + k * pExt(oldGrid, x);
+				const double b2 = dfexpansivedc(cOld) - kappa * flapC + k * pExt(xx, yy);
 				const double b3 = k * C0 / epsilon - flapP;
 
 				// Solve the iteration system AX=B using Cramer's rule
@@ -330,6 +326,8 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 			#endif
 			for (int n=0; n<nodes(newGrid); n++) {
 				vector<int> x = position(newGrid,n);
+				const double xx = dx(newGrid,0) * x[0];
+				const double yy = dx(newGrid,1) * x[1];
 				const vector<T> lap = pointerLaplacian(newGrid, x);
 
 				const T cOld = oldGrid(n)[cid];
@@ -352,7 +350,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 				const double Ax3 = lap[pid] + k * cNew / epsilon;
 
 				const double b1 = cOld;
-				const double b2 = dfexpansivedc(cOld) + k * pExt(oldGrid, x);
+				const double b2 = dfexpansivedc(cOld) + k * pExt(xx, yy);
 				const double b3 = k * C0 / epsilon;
 
 				// Compute the Error from parts of the solution
@@ -465,10 +463,12 @@ void generate(int dim, const char* filename)
 		#endif
 		for (int n=0; n<nodes(initGrid); n++) {
 			vector<int> x = position(initGrid, n);
+			const double xx = dx(initGrid,0) * x[0];
+			const double yy = dx(initGrid,1) * x[1];
 			const double c = initGrid(n)[cid];
 			const double lapC = laplacian(initGrid, x, cid);
 			initGrid(n)[pid] = -k * (initGrid(n)[cid] - c0) / epsilon;
-			initGrid(n)[uid] = 2. * w * (c-Ca) * (Cb-c) * (Ca+Cb-2.*c) - kappa*lapC + k*(initGrid(n)[pid] + pExt(initGrid, x));
+			initGrid(n)[uid] = 2. * w * (c-Ca) * (Cb-c) * (Ca+Cb-2.*c) - kappa*lapC + k*(initGrid(n)[pid] + pExt(xx, yy));
 		}
 
 		output(initGrid,filename);
