@@ -480,7 +480,7 @@ void generate(int dim, const char* filename)
 
 		double res = 1.0;
 		unsigned int iter = 0;
-		while (res > tolerance) {
+		while (res > 0.1 * tolerance) {
 			#ifdef _OPENMP
 			#pragma omp parallel for
 			#endif
