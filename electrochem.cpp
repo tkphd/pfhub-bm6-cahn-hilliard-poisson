@@ -490,8 +490,8 @@ void generate(int dim, const char* filename)
 				int deltay = 1;
 
 				const double* const c = &(poisGrid(x));
-				const double* const l = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
-				const double* const h = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
+				const double* const xl = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
+				const double* const xh = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
 
 				// initialize right-hand side
 				double rhs = deltaX*deltaX * k * (initGrid(n)[cid] - c0) / epsilon;
@@ -500,33 +500,33 @@ void generate(int dim, const char* filename)
 				if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
 					// Left boundary
 					const double gradPhi = -pA * dx(initGrid,1) * x[1] - pB;
-					rhs += (*h) - deltaX * gradPhi;
+					rhs += (*xh) - deltaX * gradPhi;
 					denom--;
 				} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
 					// Right boundary
 					const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
-					rhs += (*l) - deltaX * gradPhi;
+					rhs += (*xl) - deltaX * gradPhi;
 					denom--;
 				} else {
-					rhs += (*h) + (*l);
+					rhs += (*xh) + (*xl);
 				}
 
 				if (dim == 2) {
-					const double* const cl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
-					const double* const ch = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
+					const double* const yl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
+					const double* const yh = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
 
 					if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
 						// Bottom boundary
 						const double gradPhi = -pA * dx(initGrid,0) * x[0] - pC;
-						rhs += (*ch) - deltaX * gradPhi;
+						rhs += (*yh) - deltaX * gradPhi;
 						denom--;
 					} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
 						// Top boundary
 						const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
-						rhs += (*cl) - deltaX * gradPhi;
+						rhs += (*yl) - deltaX * gradPhi;
 						denom--;
 					} else {
-						rhs += (*ch) + (*cl);
+						rhs += (*yh) + (*yl);
 					}
 				}
 
@@ -551,8 +551,8 @@ void generate(int dim, const char* filename)
 					const int deltay = 1;
 
 					const double* const c = &(poisGrid(x));
-					const double* const l = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
-					const double* const h = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
+					const double* const xl = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
+					const double* const xh = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
 					const double wx = 1.0 / (deltaX * deltaX);
 
 					double lap = 0.;
@@ -560,30 +560,30 @@ void generate(int dim, const char* filename)
 					if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
 						// Left boundary
 						const double gradPhi = -pA * dx(initGrid,1) * x[1] - pB;
-						lap += wx * (*h - *c) - gradPhi / deltaX;
+						lap += wx * (*xh - *c) - gradPhi / deltaX;
 					} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
 						// Right boundary
 						const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
-						lap += -gradPhi / deltaX - wx * (*c - *l);
+						lap += -gradPhi / deltaX - wx * (*c - *xl);
 					} else {
-						lap += wx * (*h + *l - 2. * *c);
+						lap += wx * (*xh + *xl - 2. * *c);
 					}
 
 					if (dim == 2) {
-						const double* const cl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
-						const double* const ch = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
+						const double* const yl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
+						const double* const yh = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
 						const double wy = 1.0 / (deltaX * deltaX);
 
 						if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
 							// Bottom boundary
 							const double gradPhi = -pA * dx(initGrid,0) * x[0] - pC;
-							lap += wy * (*ch - *c) - gradPhi / deltaX;
+							lap += wy * (*yh - *c) - gradPhi / deltaX;
 						} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
 							// Top boundary
 							const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
-							lap += -gradPhi / deltaX - wy * (*c - *cl);
+							lap += -gradPhi / deltaX - wy * (*c - *yl);
 						} else {
-							lap += wy * (*ch + *cl - 2. * *c);
+							lap += wy * (*yh + *yl - 2. * *c);
 						}
 					}
 					double rhs =  -k * (initGrid(n)[cid] - c0) / epsilon;
@@ -601,7 +601,8 @@ void generate(int dim, const char* filename)
 
 				res = std::sqrt(res / norm) / nodes(initGrid);
 
-				of << iter << '\t' << res << std::endl;
+				const double F = Helmholtz(initGrid, c0);
+				of << iter << '\t' << res << '\t' << F << std::endl;
 			}
 		}
 

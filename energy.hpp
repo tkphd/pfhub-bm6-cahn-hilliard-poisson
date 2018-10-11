@@ -29,12 +29,12 @@ const double kappa = 2.0;
 const double M0    = 10.;
 
 // Gauss-Seidel parameters
-const double tolerance = 1.e-8;         // threshold residual ||b - Ax||₂ required to end iteration
-const unsigned int residual_step = 100; // number of iterations between residual computations
-const unsigned int max_iter = 100000;   // don't let the solver stagnate
-const double omega = 1.2;               // relaxation parameter (default is 1.2):
-                                        // omega = 1.0 is stock Gauss-Seidel,
-                                        // omega = 1.2 is successive over-relaxation.
+const double tolerance = 1.e-9;          // threshold residual ||b - Ax||₂ required to end iteration
+const unsigned int residual_step = 1000; // number of iterations between residual computations
+const unsigned int max_iter = 1000000;   // don't let the solver stagnate
+const double omega = 1.2;                // relaxation parameter (default is 1.2):
+                                         // omega = 1.0 is stock Gauss-Seidel,
+                                         // omega = 1.2 is successive over-relaxation.
 
 // Energy equations
 double cheminit(const double& x, const double& y)
