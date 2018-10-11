@@ -31,7 +31,7 @@ const double M0    = 10.;
 // Gauss-Seidel parameters
 const double tolerance = 5.e-9;        // threshold residual ||b - Ax||₂ required to end iteration
 const unsigned int residual_step = 10; // number of iterations between residual computations
-const unsigned int max_iter = 5000;    // don't let the solver stagnate
+const unsigned int max_iter = 1000;    // don't let the solver stagnate
 const double omega = 1.2;              // relaxation parameter (default is 1.2):
                                        // omega = 1.0 is stock Gauss-Seidel,
                                        // omega = 1.2 is successive over-relaxation.
@@ -58,8 +58,8 @@ double chemenergy(const T& C)
 double pExt(const double& xx, const double& yy)
 {
 	return pA * xx * yy
-		+ pB * xx
-		+ pC * yy;
+	     + pB * xx
+	     + pC * yy;
 }
 
 template<typename T>

@@ -471,6 +471,87 @@ void generate(int dim, const char* filename)
 			initGrid(n)[uid] = 2. * w * (c-Ca) * (Cb-c) * (Ca+Cb-2.*c) - kappa*lapC + k*(initGrid(n)[pid] + pExt(xx, yy));
 		}
 
+		// Iterative Poisson solver after http://yyy.rsmas.miami.edu/users/miskandarani/Courses/MSC321/Projects/prjpoisson.pdf
+		MMSP::grid<2,double> poisGrid(initGrid,0);
+		for (int d=0; d<dim; d++)
+			dx(poisGrid, d) = deltaX;
+		for (int n=0; n<nodes(poisGrid); n++) {
+			// Set initial field to external field
+			vector<int> x = position(poisGrid, n);
+			poisGrid(n) = pExt(deltaX * x[0], deltaX * x[1]);
+		}
+
+		double res = 1.0;
+		unsigned int iter = 0;
+		while (res > tolerance && iter < max_iter) {
+			// Jacobi iteration
+			for (int n=0; n<nodes(initGrid); n++) {
+				vector<int> x = position(initGrid, n);
+				const double h2 = deltaX * deltaX;
+
+				const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(initGrid) + MMSP::y1(initGrid) - MMSP::y0(initGrid);
+				const int deltay = 1;
+
+				const double* const c = &(poisGrid(x));
+				const double* const l = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
+				const double* const h = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
+
+				// initialize right-hand side
+				double rhs = -0.25 * h2 * k * (initGrid(n)[cid] - c0) / epsilon;
+
+				if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
+					const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
+					rhs += (*h) + h2 * gradPhi;
+				} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
+					const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
+					rhs += (*l) - h2 * gradPhi;
+				} else {
+					rhs += 0.25 * ((*h) + (*l));
+				}
+
+				const double* const cl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
+				const double* const ch = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
+
+				if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
+					const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
+					rhs += (*ch) + h2 * gradPhi;
+				} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
+					const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
+					rhs += (*cl) - h2 * gradPhi;
+				} else {
+					rhs += 0.25 * ((*ch) + (*cl));
+				}
+				poisGrid(n) = rhs;
+			}
+			iter++;
+
+			ghostswap(poisGrid);
+
+			// residual
+			double res = 0.0;
+			double norm = 0.0;
+			for (int n=0; n<nodes(initGrid); n++) {
+				vector<int> x = position(initGrid, n);
+				double Ax = laplacian(poisGrid, x);
+				double b =  k * (initGrid(n)[cid] - c0) / epsilon;
+
+				res += (b - Ax) * (b - Ax);
+				norm += b * b;
+			}
+			res = std::sqrt(res / norm) / nodes(initGrid);
+
+			if (iter < residual_step || iter % residual_step == 0)
+			std::cout << iter << '\t' << res << '\n';
+		}
+
+		if (iter > max_iter) {
+			std::cerr << "Solver stagnated: aborted!" << std::endl;
+			MMSP::Abort(-1);
+		}
+
+		for (int n=0; n<nodes(initGrid); n++)
+			initGrid(n)[pid] = poisGrid(n);
+
 		output(initGrid,filename);
 	}
 }
