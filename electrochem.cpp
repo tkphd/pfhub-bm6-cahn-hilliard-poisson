@@ -315,7 +315,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 		    this is not the iteration matrix, it is the original system of equations.
 		*/
 
-		if (iter % residual_step == 0) {
+		if (iter < residual_step || iter % residual_step == 0) {
 			double normB = 0.0;
 			residual = 0.0;
 
