@@ -487,8 +487,6 @@ void generate(int dim, const char* filename)
 			// Jacobi iteration
 			for (int n=0; n<nodes(initGrid); n++) {
 				vector<int> x = position(initGrid, n);
-				const double h2 = deltaX * deltaX;
-
 				const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(initGrid) + MMSP::y1(initGrid) - MMSP::y0(initGrid);
 				const int deltay = 1;
 
@@ -497,31 +495,43 @@ void generate(int dim, const char* filename)
 				const double* const h = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
 
 				// initialize right-hand side
-				double rhs = -0.25 * h2 * k * (initGrid(n)[cid] - c0) / epsilon;
+				double rhs = -deltaX*deltaX * k * (initGrid(n)[cid] - c0) / epsilon;
+				int denom = 4;
 
 				if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
-					const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
-					rhs += (*h) + h2 * gradPhi;
+					// Left boundary
+					const double gradPhi = -pA * dx(initGrid,1) * x[1] - pB;
+					rhs += (*h) + deltaX * gradPhi;
+					denom--;
 				} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
+					// Right boundary
 					const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
-					rhs += (*l) - h2 * gradPhi;
+					rhs += (*l) - deltaX * gradPhi;
+					denom--;
 				} else {
-					rhs += 0.25 * ((*h) + (*l));
+					rhs += (*h) + (*l);
 				}
 
-				const double* const cl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
-				const double* const ch = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
+				if (dim == 2) {
+					const double* const cl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
+					const double* const ch = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
 
-				if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
-					const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
-					rhs += (*ch) + h2 * gradPhi;
-				} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
-					const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
-					rhs += (*cl) - h2 * gradPhi;
-				} else {
-					rhs += 0.25 * ((*ch) + (*cl));
+					if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
+						// Bottom boundary
+						const double gradPhi = -pA * dx(initGrid,0) * x[0] - pC;
+						rhs += (*ch) + deltaX * gradPhi;
+						denom--;
+					} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
+						// Top boundary
+						const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
+						rhs += (*cl) - deltaX * gradPhi;
+						denom--;
+					} else {
+						rhs += (*ch) + (*cl);
+					}
 				}
-				poisGrid(n) = rhs;
+
+				poisGrid(n) = rhs / denom;
 			}
 			iter++;
 
@@ -532,21 +542,58 @@ void generate(int dim, const char* filename)
 			double norm = 0.0;
 			for (int n=0; n<nodes(initGrid); n++) {
 				vector<int> x = position(initGrid, n);
-				double Ax = laplacian(poisGrid, x);
-				double b =  k * (initGrid(n)[cid] - c0) / epsilon;
+				const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(initGrid) + MMSP::y1(initGrid) - MMSP::y0(initGrid);
+				const int deltay = 1;
 
-				res += (b - Ax) * (b - Ax);
-				norm += b * b;
+				const double* const c = &(poisGrid(x));
+				const double* const l = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
+				const double* const h = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
+				const double wx = 1.0 / (deltaX * deltaX);
+
+				double lap = 0.;
+
+				if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
+					// Left boundary
+					const double gradPhi = -pA * dx(initGrid,1) * x[1] - pB;
+					lap += wx * (*h - *c) - gradPhi / deltaX;
+				} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
+					// Right boundary
+					const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
+					lap += gradPhi / deltaX - wx * (*c - *l);
+				} else {
+					lap += wx * (*h + *l - 2. * *c);
+				}
+
+				if (dim == 2) {
+					const double* const cl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
+					const double* const ch = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
+					const double wy = 1.0 / (deltaX * deltaX);
+
+					if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
+						// Bottom boundary
+						const double gradPhi = -pA * dx(initGrid,0) * x[0] - pC;
+						lap += wy * (*ch - *c) - gradPhi / deltaX;
+					} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
+						// Top boundary
+						const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
+						lap += gradPhi / deltaX - wy * (*c - *cl);
+					} else {
+						lap += wy * (*ch + *cl - 2. * *c);
+					}
+				}
+				double rhs =  k * (initGrid(n)[cid] - c0) / epsilon;
+
+				res += (rhs - lap) * (rhs - lap);
+				norm += rhs * rhs;
 			}
 			res = std::sqrt(res / norm) / nodes(initGrid);
 
-			if (iter < residual_step || iter % residual_step == 0)
+			if (iter < 10 || iter % residual_step == 0)
 			std::cout << iter << '\t' << res << '\n';
 		}
 
-		if (iter > max_iter) {
-			std::cerr << "Solver stagnated: aborted!" << std::endl;
-			MMSP::Abort(-1);
+		if (iter == max_iter) {
+			std::cerr << "Solver stagnated! Result is not trustworthy!" << std::endl;
 		}
 
 		for (int n=0; n<nodes(initGrid); n++)
