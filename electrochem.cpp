@@ -191,7 +191,7 @@ MMSP::vector<T> pointerLaplacian(const MMSP::grid<dim,MMSP::vector<T> >& GRID, c
 }
 
 template<int dim,typename T>
-unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<dim,vector<T> >& newGrid)
+void RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<dim,vector<T> >& newGrid)
 {
 	int rank=0;
 	#ifdef MPI_VERSION
@@ -315,7 +315,7 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 		    this is not the iteration matrix, it is the original system of equations.
 		*/
 
-		if (iter < residual_step || iter % residual_step == 0) {
+		if (iter % residual_step == 0) {
 			double normB = 0.0;
 			residual = 0.0;
 
@@ -379,16 +379,197 @@ unsigned int RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C
 
 			residual = (std::fabs(normB) > tolerance) ? sqrt(residual/normB)/(3.0*gridSize) : 0.0;
 
-			double F = Helmholtz(newGrid, C0);
-			if (rank == 0)
-				of << iter << '\t' << residual << '\t' << F << std::endl;
+			if (iter % residual_step == 0 || residual < tolerance) {
+				double F = Helmholtz(newGrid, C0);
+				#ifdef MPI_VERSION
+				double localF(F);
+				MPI::COMM_WORLD.Allreduce(&localF, &F, 1, MPI_DOUBLE, MPI_SUM);
+				#endif
+				if (rank == 0)
+					of << iter << '\t' << residual << '\t' << F << std::endl;
+			}
 		}
 	}
 
 	if (rank == 0)
 		of.close();
 
-	return iter;
+	#ifdef MPI_VERSION
+	unsigned int myit(iter);
+	MPI::COMM_WORLD.Allreduce(&myit, &iter, 1, MPI_UNSIGNED, MPI_MAX);
+	#endif
+
+	if (iter >= max_iter) {
+		if (rank==0)
+			std::cerr << "Solver stagnated. Aborting." << std::endl;
+		MMSP::Abort(-1);
+	}
+}
+
+template<int dim,typename T>
+void PoissonSolver(grid<dim,vector<T> >& GRID, const T& C0)
+{
+	int rank=0;
+	#ifdef MPI_VERSION
+	rank = MPI::COMM_WORLD.Get_rank();
+	#endif
+
+	std::ofstream of;
+	if (rank == 0)
+		of.open("iter.log", std::ofstream::out);
+	// Iterative Poisson solver after http://yyy.rsmas.miami.edu/users/miskandarani/Courses/MSC321/Projects/prjpoisson.pdf
+	MMSP::grid<2,double> poisGrid(GRID,0);
+	for (int d=0; d<dim; d++)
+		dx(poisGrid, d) = deltaX;
+	for (int n=0; n<nodes(poisGrid); n++) {
+		// Set initial field to external field
+		vector<int> x = position(poisGrid, n);
+		poisGrid(n) = pExt(deltaX * x[0], deltaX * x[1]);
+	}
+
+	double res = 1.0;
+	unsigned int iter = 0;
+	while (res > tolerance) {
+		#ifdef _OPENMP
+		#pragma omp parallel for
+		#endif
+		for (int n=0; n<nodes(GRID); n++) {
+			vector<int> x = position(GRID, n);
+			const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(GRID) + MMSP::y1(GRID) - MMSP::y0(GRID);
+			int deltay = 1;
+
+			const double* const c = &(poisGrid(x));
+			const double* const xl = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
+			const double* const xh = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
+
+			// initialize right-hand side
+			double rhs = deltaX*deltaX * k * (GRID(n)[cid] - C0) / epsilon;
+			int denom = 4;
+
+			if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
+				// Left boundary
+				const double gradPhi = -pA * dx(GRID,1) * x[1] - pB;
+				rhs += (*xh) - deltaX * gradPhi;
+				denom--;
+			} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
+				// Right boundary
+				const double gradPhi = pA * dx(GRID,1) * x[1] + pB;
+				rhs += (*xl) - deltaX * gradPhi;
+				denom--;
+			} else {
+				rhs += (*xh) + (*xl);
+			}
+
+			if (dim == 2) {
+				const double* const yl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
+				const double* const yh = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
+
+				if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
+					// Bottom boundary
+					const double gradPhi = -pA * dx(GRID,0) * x[0] - pC;
+					rhs += (*yh) - deltaX * gradPhi;
+					denom--;
+				} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
+					// Top boundary
+					const double gradPhi = pA * dx(GRID,0) * x[0] + pC;
+					rhs += (*yl) - deltaX * gradPhi;
+					denom--;
+				} else {
+					rhs += (*yh) + (*yl);
+				}
+			}
+
+			poisGrid(n) = rhs / denom;
+		}
+
+		iter++;
+
+		ghostswap(poisGrid);
+
+		if (iter % 10 == 0) {
+			// residual
+			res = 0.0;
+			double norm = 0.0;
+
+			#ifdef _OPENMP
+			#pragma omp parallel for
+			#endif
+			for (int n=0; n<nodes(GRID); n++) {
+				vector<int> x = position(GRID, n);
+				const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(GRID) + MMSP::y1(GRID) - MMSP::y0(GRID);
+				const int deltay = 1;
+
+				const double* const c = &(poisGrid(x));
+				const double* const xl = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
+				const double* const xh = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
+				const double wx = 1.0 / (deltaX * deltaX);
+
+				double lap = 0.;
+
+				if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
+					// Left boundary
+					const double gradPhi = -pA * dx(GRID,1) * x[1] - pB;
+					lap += wx * (*xh - *c) - gradPhi / deltaX;
+				} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
+					// Right boundary
+					const double gradPhi = pA * dx(GRID,1) * x[1] + pB;
+					lap += -gradPhi / deltaX - wx * (*c - *xl);
+				} else {
+					lap += wx * (*xh + *xl - 2. * *c);
+				}
+
+				if (dim == 2) {
+					const double* const yl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
+					const double* const yh = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
+					const double wy = 1.0 / (deltaX * deltaX);
+
+					if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
+						// Bottom boundary
+						const double gradPhi = -pA * dx(GRID,0) * x[0] - pC;
+						lap += wy * (*yh - *c) - gradPhi / deltaX;
+					} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
+						// Top boundary
+						const double gradPhi = pA * dx(GRID,0) * x[0] + pC;
+						lap += -gradPhi / deltaX - wy * (*c - *yl);
+					} else {
+						lap += wy * (*yh + *yl - 2. * *c);
+					}
+				}
+				double rhs =  -k * (GRID(n)[cid] - C0) / epsilon;
+
+				#ifdef _OPENMP
+				#pragma omp atomic
+				#endif
+				res += (rhs - lap) * (rhs - lap);
+
+				#ifdef _OPENMP
+				#pragma omp atomic
+				#endif
+				norm += rhs * rhs;
+			}
+
+			res = std::sqrt(res / norm) / nodes(GRID);
+
+			if (iter % residual_step == 0) {
+				const double F = Helmholtz(GRID, C0);
+
+				#ifdef MPI_VERSION
+				double localF(F);
+				MPI::COMM_WORLD.Allreduce(&localF, &F, 1, MPI_DOUBLE, MPI_SUM);
+				#endif
+				of << iter << '\t' << res << '\t' << F << std::endl;
+			}
+		}
+	}
+
+	#ifdef _OPENMP
+	#pragma omp parallel for
+	#endif
+	for (int n=0; n<nodes(GRID); n++)
+		GRID(n)[pid] = poisGrid(n);
+
+	if (rank == 0)
+		of.close();
 }
 
 void generate(int dim, const char* filename)
@@ -408,10 +589,6 @@ void generate(int dim, const char* filename)
 		std::cerr << "ERROR: CHiMaD problems are 2-D, only!" << std::endl;
 		std::exit(-1);
 	}
-
-	std::ofstream of;
-	if (rank == 0)
-		of.open("iter.log", std::ofstream::out);
 
 	if (dim==2) {
 		const int L = 100 / deltaX;
@@ -468,151 +645,10 @@ void generate(int dim, const char* filename)
 			initGrid(n)[uid] = 2. * w * (c-Ca) * (Cb-c) * (Ca+Cb-2.*c) - kappa*lapC + k*(initGrid(n)[pid] + pExt(xx, yy));
 		}
 
-		// Iterative Poisson solver after http://yyy.rsmas.miami.edu/users/miskandarani/Courses/MSC321/Projects/prjpoisson.pdf
-		MMSP::grid<2,double> poisGrid(initGrid,0);
-		for (int d=0; d<dim; d++)
-			dx(poisGrid, d) = deltaX;
-		for (int n=0; n<nodes(poisGrid); n++) {
-			// Set initial field to external field
-			vector<int> x = position(poisGrid, n);
-			poisGrid(n) = pExt(deltaX * x[0], deltaX * x[1]);
-		}
-
-		double res = 1.0;
-		unsigned int iter = 0;
-		while (res > 0.1 * tolerance) {
-			#ifdef _OPENMP
-			#pragma omp parallel for
-			#endif
-			for (int n=0; n<nodes(initGrid); n++) {
-				vector<int> x = position(initGrid, n);
-				const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(initGrid) + MMSP::y1(initGrid) - MMSP::y0(initGrid);
-				int deltay = 1;
-
-				const double* const c = &(poisGrid(x));
-				const double* const xl = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
-				const double* const xh = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
-
-				// initialize right-hand side
-				double rhs = deltaX*deltaX * k * (initGrid(n)[cid] - c0) / epsilon;
-				int denom = 4;
-
-				if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
-					// Left boundary
-					const double gradPhi = -pA * dx(initGrid,1) * x[1] - pB;
-					rhs += (*xh) - deltaX * gradPhi;
-					denom--;
-				} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
-					// Right boundary
-					const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
-					rhs += (*xl) - deltaX * gradPhi;
-					denom--;
-				} else {
-					rhs += (*xh) + (*xl);
-				}
-
-				if (dim == 2) {
-					const double* const yl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
-					const double* const yh = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
-
-					if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
-						// Bottom boundary
-						const double gradPhi = -pA * dx(initGrid,0) * x[0] - pC;
-						rhs += (*yh) - deltaX * gradPhi;
-						denom--;
-					} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
-						// Top boundary
-						const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
-						rhs += (*yl) - deltaX * gradPhi;
-						denom--;
-					} else {
-						rhs += (*yh) + (*yl);
-					}
-				}
-
-				poisGrid(n) = rhs / denom;
-			}
-
-			iter++;
-
-			ghostswap(poisGrid);
-
-			if (iter % residual_step == 0) {
-				// residual
-				res = 0.0;
-				double norm = 0.0;
-
-				#ifdef _OPENMP
-				#pragma omp parallel for
-				#endif
-				for (int n=0; n<nodes(initGrid); n++) {
-					vector<int> x = position(initGrid, n);
-					const int deltax = (dim == 1) ? 1 : 2 * MMSP::ghosts(initGrid) + MMSP::y1(initGrid) - MMSP::y0(initGrid);
-					const int deltay = 1;
-
-					const double* const c = &(poisGrid(x));
-					const double* const xl = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
-					const double* const xh = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
-					const double wx = 1.0 / (deltaX * deltaX);
-
-					double lap = 0.;
-
-					if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
-						// Left boundary
-						const double gradPhi = -pA * dx(initGrid,1) * x[1] - pB;
-						lap += wx * (*xh - *c) - gradPhi / deltaX;
-					} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
-						// Right boundary
-						const double gradPhi = pA * dx(initGrid,1) * x[1] + pB;
-						lap += -gradPhi / deltaX - wx * (*c - *xl);
-					} else {
-						lap += wx * (*xh + *xl - 2. * *c);
-					}
-
-					if (dim == 2) {
-						const double* const yl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
-						const double* const yh = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
-						const double wy = 1.0 / (deltaX * deltaX);
-
-						if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
-							// Bottom boundary
-							const double gradPhi = -pA * dx(initGrid,0) * x[0] - pC;
-							lap += wy * (*yh - *c) - gradPhi / deltaX;
-						} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
-							// Top boundary
-							const double gradPhi = pA * dx(initGrid,0) * x[0] + pC;
-							lap += -gradPhi / deltaX - wy * (*c - *yl);
-						} else {
-							lap += wy * (*yh + *yl - 2. * *c);
-						}
-					}
-					double rhs =  -k * (initGrid(n)[cid] - c0) / epsilon;
-
-					#ifdef _OPENMP
-					#pragma omp atomic
-					#endif
-					res += (rhs - lap) * (rhs - lap);
-
-					#ifdef _OPENMP
-					#pragma omp atomic
-					#endif
-					norm += rhs * rhs;
-				}
-
-				res = std::sqrt(res / norm) / nodes(initGrid);
-
-				const double F = Helmholtz(initGrid, c0);
-				of << iter << '\t' << res << '\t' << F << std::endl;
-			}
-		}
-
-		for (int n=0; n<nodes(initGrid); n++)
-			initGrid(n)[pid] = poisGrid(n);
+		PoissonSolver(initGrid, c0);
 
 		output(initGrid,filename);
 	}
-	if (rank == 0)
-		of.close();
 }
 
 template <int dim, typename T>
@@ -677,18 +713,7 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 
 		ghostswap(newGrid);
 
-		unsigned int iter = RedBlackGaussSeidel(oldGrid, c0, newGrid);
-
-		#ifdef MPI_VERSION
-		unsigned int myit(iter);
-		MPI::COMM_WORLD.Allreduce(&myit, &iter, 1, MPI_UNSIGNED, MPI_MAX);
-		#endif
-
-		if (iter >= max_iter) {
-			if (rank==0)
-				std::cerr << "Solver stagnated on step " << step << ". Aborting." << std::endl;
-			MMSP::Abort(-1);
-		}
+		RedBlackGaussSeidel(oldGrid, c0, newGrid);
 
 		swap(oldGrid, newGrid);
 		ghostswap(oldGrid);
