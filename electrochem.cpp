@@ -223,9 +223,11 @@ void RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<
 	rank = MPI::COMM_WORLD.Get_rank();
 	#endif
 
+	#ifdef DEBUG
 	std::ofstream of;
 	if (rank == 0)
 		of.open("iter.log", std::ofstream::out | std::ofstream::app); // new results will be appended
+	#endif
 
 	double gridSize = static_cast<double>(nodes(oldGrid));
 	#ifdef MPI_VERSION
@@ -410,14 +412,18 @@ void RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<
 				double localF(F);
 				MPI::COMM_WORLD.Allreduce(&localF, &F, 1, MPI_DOUBLE, MPI_SUM);
 				#endif
+				#ifdef DEBUG
 				if (rank == 0)
 					of << iter << '\t' << residual << '\t' << F << std::endl;
+				#endif
 			}
 		}
 	}
 
+	#ifdef DEBUG
 	if (rank == 0)
 		of.close();
+	#endif
 
 	#ifdef MPI_VERSION
 	unsigned int myit(iter);
@@ -436,9 +442,11 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const double C0)
 {
 	// Iterative Poisson solver after http://yyy.rsmas.miami.edu/users/miskandarani/Courses/MSC321/Projects/prjpoisson.pdf
 
+	#ifdef DEBUG
 	int rank=0;
 	#ifdef MPI_VERSION
 	rank = MPI::COMM_WORLD.Get_rank();
+	#endif
 	#endif
 
 	MMSP::grid<dim,double> poisGrid(GRID,0);
@@ -450,9 +458,11 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const double C0)
 		poisGrid(n) = GRID(n)[pid];
 	}
 
+	#ifdef DEBUG
 	std::ofstream of;
 	if (rank == 0)
 		of.open("iter.log", std::ofstream::out|std::ios_base::app);
+	#endif
 
 	double res = 1.0;
 	unsigned int iter = 0;
@@ -577,6 +587,7 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const double C0)
 
 			res = std::sqrt(res / norm) / nodes(GRID);
 
+			#ifdef DEBUG
 			if (iter < 10 || iter % residual_step == 0 || res < tolerance) {
 				const double F = Helmholtz(GRID, C0);
 
@@ -586,6 +597,7 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const double C0)
 				#endif
 				of << iter << '\t' << res << '\t' << F << std::endl;
 			}
+			#endif
 		}
 	}
 
@@ -595,8 +607,10 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const double C0)
 	for (int n=0; n<nodes(GRID); n++)
 		GRID(n)[pid] = poisGrid(n);
 
+	#ifdef DEBUG
 	if (rank == 0)
 		of.close();
+	#endif
 }
 
 void generate(int dim, const char* filename)
@@ -617,11 +631,13 @@ void generate(int dim, const char* filename)
 		std::exit(-1);
 	}
 
+	#ifdef DEBUG
 	std::ofstream of;
 	if (rank == 0) {
 		of.open("iter.log", std::ofstream::out);
 		of.close();
 	}
+	#endif
 
 	if (dim==2) {
 		const int L = 100 / deltaX;
@@ -757,7 +773,7 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 		elapsed += dt;
 		const double F = Helmholtz(oldGrid, c0);
 		if (rank == 0)
-			of << elapsed << '\t' << F << std::endl;
+			of << elapsed << '\t' << c0 << '\t' << F << std::endl;
 		#endif
 	}
 
