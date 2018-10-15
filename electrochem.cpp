@@ -19,8 +19,33 @@ namespace MMSP {
 
 // Numerical parameters
 const double deltaX = 0.5;
-const double dt = 0.0384 * (2.0 * std::pow(deltaX, 4) / (24.0 * M0 * kappa));
+const double dt = 0.096 * (2.0 * std::pow(deltaX, 4) / (24.0 * M0 * kappa));
 const double CFL = (24.0 * M0 * kappa * dt) / (2.0 * std::pow(deltaX, 4));
+
+template<int dim, typename T>
+double system_composition(const grid<dim,vector<T> >& GRID)
+{
+	// compute system composition
+	double c0 = 0.0;
+	double gridSize = static_cast<double>(nodes(GRID));
+	#ifdef MPI_VERSION
+	double localGridSize = gridSize;
+	MPI::COMM_WORLD.Allreduce(&localGridSize, &gridSize, 1, MPI_DOUBLE, MPI_SUM);
+	#endif
+
+	#ifdef _OPENMP
+	#pragma omp parallel for reduction(+:c0)
+	#endif
+	for (int n=0; n<nodes(GRID); n++)
+		c0 += GRID(n)[cid];
+
+	#ifdef MPI_VERSION
+	double myC(c0);
+	MPI::COMM_WORLD.Allreduce(&myC, &c0, 1, MPI_DOUBLE, MPI_SUM);
+	#endif
+	c0 /= gridSize;
+	return c0;
+}
 
 template <int dim,typename T>
 double Helmholtz(const grid<dim,vector<T> >& GRID, const T& C0)
@@ -265,13 +290,13 @@ void RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<
 				const vector<T> gradC = gradient(newGrid, x, cid);
 				const vector<T> gradU = gradient(newGrid, x, uid);
 				const double dotgradCU = gradC * gradU;
-				const double M = M0 / std::pow(1.0 + cGuess * cGuess, 2.);
-				const double dMdc = M0 / (1.0 + cGuess * cGuess);
+				const double M = M0 / (1.0 + cGuess * cGuess);
+				const double dMdc = -2. * M0 / std::pow(1.0 + cGuess * cGuess, 2.);
 
 				// A is defined by the last guess, stored in newGrid(n).
 				// It is a 3x3 matrix.
-				const double a11 = 1. + 2. * M * dt * dotgradCU;
-				const double a12 = lapWeight * dt * dMdc;
+				const double a11 = 1. - dMdc * dt * dotgradCU;
+				const double a12 = lapWeight * dt * M;
 				const double a21 = -kappa * lapWeight - dfcontractivedc(cGuess, 1.0);
 				const double a22 = 1.0;
 				const double a23 = -k;
@@ -284,7 +309,7 @@ void RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<
 				const double flapU = fringe_laplacian(newGrid, x, uid);
 				const double flapP = fringe_laplacian(newGrid, x, pid);
 
-				const double b1 = cOld + dt * dMdc * flapU;
+				const double b1 = cOld + dt * M * flapU;
 				const double b2 = dfexpansivedc(cOld) - kappa * flapC + k * pExt(xx, yy);
 				const double b3 = k * C0 / epsilon - flapP;
 
@@ -342,8 +367,8 @@ void RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<
 				const double dMdc = M0 / (1.0 + cNew * cNew);
 
 				// Plug iteration results into original system of equations
-				const double Ax1 = (1. + 2. * M * dt * dotgradCU) * cNew
-				                 - (dMdc * dt) * lap[uid];
+				const double Ax1 = (1. - dMdc * dt * dotgradCU) * cNew
+				                 - (M * dt) * lap[uid];
 				const double Ax2 = uNew + kappa * lap[cid] - dfcontractivedc(cNew, cNew) - k * pNew;
 				const double Ax3 = lap[pid] + k * cNew / epsilon;
 
@@ -407,25 +432,27 @@ void RedBlackGaussSeidel(const grid<dim,vector<T> >& oldGrid, const T& C0, grid<
 }
 
 template<int dim,typename T>
-void PoissonSolver(grid<dim,vector<T> >& GRID, const T& C0)
+void PoissonSolver(grid<dim,vector<T> >& GRID, const double C0)
 {
+	// Iterative Poisson solver after http://yyy.rsmas.miami.edu/users/miskandarani/Courses/MSC321/Projects/prjpoisson.pdf
+
 	int rank=0;
 	#ifdef MPI_VERSION
 	rank = MPI::COMM_WORLD.Get_rank();
 	#endif
 
-	std::ofstream of;
-	if (rank == 0)
-		of.open("iter.log", std::ofstream::out);
-	// Iterative Poisson solver after http://yyy.rsmas.miami.edu/users/miskandarani/Courses/MSC321/Projects/prjpoisson.pdf
-	MMSP::grid<2,double> poisGrid(GRID,0);
+	MMSP::grid<dim,double> poisGrid(GRID,0);
 	for (int d=0; d<dim; d++)
 		dx(poisGrid, d) = deltaX;
 	for (int n=0; n<nodes(poisGrid); n++) {
 		// Set initial field to external field
 		vector<int> x = position(poisGrid, n);
-		poisGrid(n) = pExt(deltaX * x[0], deltaX * x[1]);
+		poisGrid(n) = GRID(n)[pid];
 	}
+
+	std::ofstream of;
+	if (rank == 0)
+		of.open("iter.log", std::ofstream::out|std::ios_base::app);
 
 	double res = 1.0;
 	unsigned int iter = 0;
@@ -439,19 +466,19 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const T& C0)
 			int deltay = 1;
 
 			const double* const c = &(poisGrid(x));
-			const double* const xl = (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x0(poisGrid)  ) ? c : c - deltax;
-			const double* const xh = (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::x1(poisGrid)-1) ? c : c + deltax;
+			const double* const xl = (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::x0(GRID)  ) ? c : c - deltax;
+			const double* const xh = (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::x1(GRID)-1) ? c : c + deltax;
 
 			// initialize right-hand side
 			double rhs = deltaX*deltaX * k * (GRID(n)[cid] - C0) / epsilon;
 			int denom = 4;
 
-			if (MMSP::b0(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g0(poisGrid,0)) {
+			if (MMSP::b0(GRID,0)==MMSP::Neumann && x[0]==MMSP::g0(GRID,0)) {
 				// Left boundary
 				const double gradPhi = -pA * dx(GRID,1) * x[1] - pB;
 				rhs += (*xh) - deltaX * gradPhi;
 				denom--;
-			} else if (MMSP::b1(poisGrid,0)==MMSP::Neumann && x[0]==MMSP::g1(poisGrid,0)-1) {
+			} else if (MMSP::b1(GRID,0)==MMSP::Neumann && x[0]==MMSP::g1(GRID,0)-1) {
 				// Right boundary
 				const double gradPhi = pA * dx(GRID,1) * x[1] + pB;
 				rhs += (*xl) - deltaX * gradPhi;
@@ -461,15 +488,15 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const T& C0)
 			}
 
 			if (dim == 2) {
-				const double* const yl = (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y0(poisGrid)  ) ? c : c - deltay;
-				const double* const yh = (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::y1(poisGrid)-1) ? c : c + deltay;
+				const double* const yl = (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::y0(GRID)  ) ? c : c - deltay;
+				const double* const yh = (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::y1(GRID)-1) ? c : c + deltay;
 
-				if (MMSP::b0(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g0(poisGrid,1)) {
+				if (MMSP::b0(GRID,1)==MMSP::Neumann && x[1]==MMSP::g0(GRID,1)) {
 					// Bottom boundary
 					const double gradPhi = -pA * dx(GRID,0) * x[0] - pC;
 					rhs += (*yh) - deltaX * gradPhi;
 					denom--;
-				} else if (MMSP::b1(poisGrid,1)==MMSP::Neumann && x[1]==MMSP::g1(poisGrid,1)-1) {
+				} else if (MMSP::b1(GRID,1)==MMSP::Neumann && x[1]==MMSP::g1(GRID,1)-1) {
 					// Top boundary
 					const double gradPhi = pA * dx(GRID,0) * x[0] + pC;
 					rhs += (*yl) - deltaX * gradPhi;
@@ -486,7 +513,7 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const T& C0)
 
 		ghostswap(poisGrid);
 
-		if (iter % 10 == 0) {
+		if (iter < 10 || iter % 10 == 0) {
 			// residual
 			res = 0.0;
 			double norm = 0.0;
@@ -550,7 +577,7 @@ void PoissonSolver(grid<dim,vector<T> >& GRID, const T& C0)
 
 			res = std::sqrt(res / norm) / nodes(GRID);
 
-			if (iter % residual_step == 0) {
+			if (iter < 10 || iter % residual_step == 0 || res < tolerance) {
 				const double F = Helmholtz(GRID, C0);
 
 				#ifdef MPI_VERSION
@@ -590,6 +617,12 @@ void generate(int dim, const char* filename)
 		std::exit(-1);
 	}
 
+	std::ofstream of;
+	if (rank == 0) {
+		of.open("iter.log", std::ofstream::out);
+		of.close();
+	}
+
 	if (dim==2) {
 		const int L = 100 / deltaX;
 		GRID2D initGrid(3, 0,L, 0,L);
@@ -618,18 +651,12 @@ void generate(int dim, const char* filename)
 			vector<int> x = position(initGrid, n);
 			// composition field
 			initGrid(n)[cid] = cheminit(dx(initGrid,0) * x[0], dx(initGrid,1) * x[1]);
+			initGrid(n)[pid] = pExt(deltaX * x[0], deltaX * x[1]);
 		}
 
 		ghostswap(initGrid);
 
-		double c0 = 0.0;
-		for (int n=0; n<nodes(initGrid); n++)
-			c0 += initGrid(n)[cid];
-		#ifdef MPI_VERSION
-		double myC(c0);
-		MPI::COMM_WORLD.Allreduce(&myC, &c0, 1, MPI_DOUBLE, MPI_SUM);
-		#endif
-		c0 /= gridSize;
+		const double c0 = system_composition(initGrid);
 		std::cout << "System composition is " << c0 << std::endl;
 
 		#ifdef _OPENMP
@@ -641,7 +668,6 @@ void generate(int dim, const char* filename)
 			const double yy = dx(initGrid,1) * x[1];
 			const double c = initGrid(n)[cid];
 			const double lapC = laplacian(initGrid, x, cid);
-			initGrid(n)[pid] = -k * (initGrid(n)[cid] - c0) / epsilon;
 			initGrid(n)[uid] = 2. * w * (c-Ca) * (Cb-c) * (Ca+Cb-2.*c) - kappa*lapC + k*(initGrid(n)[pid] + pExt(xx, yy));
 		}
 
@@ -691,16 +717,6 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 		}
 	}
 
-	// compute system composition, in serial
-	double c0 = 0.0;
-	for (int n=0; n<nodes(oldGrid); n++)
-		c0 += oldGrid(n)[cid];
-	#ifdef MPI_VERSION
-	double myC(c0);
-	MPI::COMM_WORLD.Allreduce(&myC, &c0, 1, MPI_DOUBLE, MPI_SUM);
-	#endif
-	c0 /= gridSize;
-
 	#ifndef DEBUG
 	std::ofstream of;
 	if (rank == 0)
@@ -711,12 +727,31 @@ void update(grid<dim,vector<T> >& oldGrid, int steps)
 		if (rank==0)
 			print_progress(step, steps);
 
-		ghostswap(newGrid);
+		const double c0 = system_composition(oldGrid);
 
-		RedBlackGaussSeidel(oldGrid, c0, newGrid);
+		// ghostswap(newGrid);
+		// RedBlackGaussSeidel(oldGrid, c0, newGrid);
+
+		for (int n=0; n < nodes(oldGrid); n++) {
+			vector<int> x = position(oldGrid, n);
+			const T& cOld = oldGrid(n)[cid];
+			const T& pOld = oldGrid(n)[pid];
+			const vector<T> gradC = gradient(newGrid, x, cid);
+			const vector<T> gradU = gradient(newGrid, x, uid);
+			const double dotgradCU = gradC * gradU;
+			const double M = M0 / (1.0 + cOld * cOld);
+			const double dMdc = -2. * M0 / std::pow(1.0 + cOld * cOld, 2.);
+			const vector<T> lap = pointerLaplacian(oldGrid, x);
+
+			newGrid(n)[cid] = cOld + dt * (dMdc * dotgradCU + M * lap[uid]);
+			newGrid(n)[uid] = 2. * w * (cOld - Ca) * (Cb - cOld) * (Ca + Cb - 2. * cOld)
+				            - kappa * lap[cid]
+				            + k * (pOld + pExt(dx(oldGrid,0) * x[0], dx(oldGrid,1) * x[1]));
+		}
 
 		swap(oldGrid, newGrid);
 		ghostswap(oldGrid);
+		PoissonSolver(oldGrid, c0);
 
 		#ifndef DEBUG
 		elapsed += dt;
